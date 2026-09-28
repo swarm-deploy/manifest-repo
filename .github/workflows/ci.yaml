@@ -33,3 +33,11 @@ jobs:
 
       - name: Build
         run: mkdir -p dist && go build -o dist/manifest-repo ./cmd/manifest-repo
+
+      - name: Build Docker Action
+        run: docker build --tag manifest-repo-action:test .
+
+      - name: Smoke test Docker Action
+        run: |
+          docker run --rm manifest-repo-action:test help
+          docker run --rm --entrypoint docker manifest-repo-action:test compose version

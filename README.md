@@ -2,6 +2,42 @@
 
 Tools for publishing deployment manifests from application repositories into a central Git repository consumed by GitOps systems such as [swarm-deploy](https://github.com/swarm-deploy/swarm-deploy).
 
+It can be used as a GitHub Action or as a standalone Go CLI.
+
+## GitHub Action
+
+The Docker Action publishes an already prepared Compose manifest by invoking the `manifest-repo publish` command. It includes Git, Docker Compose validation, and the Go CLI in a self-contained image.
+
+```yaml
+name: Publish manifest
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Publish Compose manifest
+        uses: swarm-deploy/manifest-repo@v1
+        with:
+          source: deploy/prod.yaml
+          repo: example/manifests
+          branch: main
+          stack: core
+          mode: merge
+          message: "chore(gitops): sync core from ${{ github.repository }}@${{ github.sha }}"
+          token: ${{ secrets.MANIFEST_REPO_TOKEN }}
+```
+
+By default, `stack: core` updates `applications/core.yaml`. Set `target` to use another repository-relative path. `mode` accepts `merge` or `replace`, and Compose validation can be disabled with `validate-compose: "false"`.
+
+The token must have permission to push to the target repository. It is exposed to the CLI only through the action container environment and is not embedded in the Git clone URL.
+
 ## Commands
 
 ### `render`
@@ -74,4 +110,6 @@ The CLI intentionally does not own image building or GitHub Release creation. Th
 ```bash
 go test ./...
 go build ./cmd/manifest-repo
+docker build -t manifest-repo-action:test .
+docker run --rm manifest-repo-action:test help
 ```

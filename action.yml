@@ -1,0 +1,77 @@
+name: Publish Compose manifest
+description: Publish a Compose manifest to a central Git repository with manifest-repo
+
+inputs:
+  source:
+    description: Path to the source Compose manifest
+    required: false
+    default: deploy/prod.yaml
+  repo:
+    description: Target repository as owner/name or a Git URL
+    required: true
+  branch:
+    description: Target repository branch
+    required: false
+    default: main
+  stack:
+    description: Stack name; the default target is applications/<stack>.yaml
+    required: true
+  target:
+    description: Target path inside the repository; overrides the stack-derived path
+    required: false
+    default: ""
+  mode:
+    description: Publish mode, either merge or replace
+    required: false
+    default: merge
+  message:
+    description: Git commit message
+    required: true
+  token:
+    description: Git token with write access to the target repository
+    required: true
+  git-user:
+    description: Git commit author name
+    required: false
+    default: manifest-repo
+  git-email:
+    description: Git commit author email
+    required: false
+    default: manifest-repo@users.noreply.github.com
+  validate-compose:
+    description: Validate the target with docker compose config before committing
+    required: false
+    default: "true"
+
+runs:
+  using: docker
+  image: Dockerfile
+  env:
+    MANIFEST_REPO_TOKEN: ${{ inputs.token }}
+  args:
+    - publish
+    - --source
+    - ${{ inputs.source }}
+    - --repo
+    - ${{ inputs.repo }}
+    - --branch
+    - ${{ inputs.branch }}
+    - --stack
+    - ${{ inputs.stack }}
+    - --target
+    - ${{ inputs.target }}
+    - --mode
+    - ${{ inputs.mode }}
+    - --message
+    - ${{ inputs.message }}
+    - --git-user
+    - ${{ inputs.git-user }}
+    - --git-email
+    - ${{ inputs.git-email }}
+    - --validate-compose=${{ inputs.validate-compose }}
+    - --token-env
+    - MANIFEST_REPO_TOKEN
+
+branding:
+  icon: upload-cloud
+  color: blue
