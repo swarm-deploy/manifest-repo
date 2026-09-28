@@ -1,5 +1,5 @@
 name: Publish Compose manifest
-description: Publish a Compose manifest to a central Git repository with manifest-repo
+description: Render and publish a Compose manifest to a central Git repository with manifest-repo
 
 inputs:
   source:
@@ -15,6 +15,12 @@ inputs:
     default: main
   stack:
     description: Stack name; the default target is applications/<stack>.yaml
+    required: true
+  registry:
+    description: Container registry used for rendered service images
+    required: true
+  tag:
+    description: Release tag used for rendered service images
     required: true
   target:
     description: Target path inside the repository; overrides the stack-derived path
@@ -41,11 +47,11 @@ inputs:
   validate-compose:
     description: Validate the target with docker compose config before committing
     required: false
-    default: "true"
+    default: "false"
 
 runs:
   using: docker
-  image: Dockerfile
+  image: docker://ghcr.io/swarm-deploy/manifest-repo:v1
   env:
     MANIFEST_REPO_TOKEN: ${{ inputs.token }}
   args:
@@ -58,6 +64,12 @@ runs:
     - ${{ inputs.branch }}
     - --stack
     - ${{ inputs.stack }}
+    - --registry
+    - ${{ inputs.registry }}
+    - --tag
+    - ${{ inputs.tag }}
+    - --source-repository-url
+    - ${{ github.server_url }}/${{ github.repository }}
     - --target
     - ${{ inputs.target }}
     - --mode

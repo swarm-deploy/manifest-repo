@@ -81,6 +81,9 @@ func runMerge(args []string) error {
 func runPublish(args []string) error {
 	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
 	source := fs.String("source", "", "source manifest")
+	registry := fs.String("registry", "", "container registry used to render service images")
+	tag := fs.String("tag", "", "release image tag used to render service images")
+	repositoryURL := fs.String("source-repository-url", "", "source repository URL added to service labels")
 	repository := fs.String("repo", "", "target repository as owner/name, URL, or local path")
 	branch := fs.String("branch", "main", "target repository branch")
 	target := fs.String("target", "", "target path inside repository")
@@ -104,8 +107,31 @@ func runPublish(args []string) error {
 		return fmt.Errorf("--message is required")
 	}
 
+	publishSource := *source
+	if *registry != "" || *tag != "" || *repositoryURL != "" {
+		rendered, err := os.CreateTemp("", "manifest-repo-rendered-*.yaml")
+		if err != nil {
+			return fmt.Errorf("create rendered manifest: %w", err)
+		}
+		publishSource = rendered.Name()
+		if err := rendered.Close(); err != nil {
+			os.Remove(publishSource)
+			return fmt.Errorf("close rendered manifest: %w", err)
+		}
+		defer os.Remove(publishSource)
+
+		if err := manifest.RenderFile(*source, publishSource, manifest.RenderOptions{
+			StackName:           *stack,
+			Registry:            *registry,
+			ReleaseTag:          *tag,
+			SourceRepositoryURL: *repositoryURL,
+		}); err != nil {
+			return fmt.Errorf("render manifest: %w", err)
+		}
+	}
+
 	changed, err := publisher.Publish(publisher.Config{
-		SourceFile:      *source,
+		SourceFile:      publishSource,
 		Repository:      *repository,
 		Branch:          *branch,
 		TargetFile:      *target,

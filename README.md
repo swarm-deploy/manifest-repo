@@ -6,7 +6,7 @@ It can be used as a GitHub Action or as a standalone Go CLI.
 
 ## GitHub Action
 
-The Docker Action publishes an already prepared Compose manifest by invoking the `manifest-repo publish` command. It includes Git, Docker Compose validation, and the Go CLI in a self-contained image.
+The Docker Action renders and publishes a Compose manifest by invoking the `manifest-repo publish` command. It uses the prebuilt `ghcr.io/swarm-deploy/manifest-repo:v1` image, which includes Git, Docker Compose validation, and the Go CLI.
 
 ```yaml
 name: Publish manifest
@@ -29,10 +29,14 @@ jobs:
           repo: example/manifests
           branch: main
           stack: core
+          registry: ghcr.io/example
+          tag: ${{ github.event.release.tag_name }}
           mode: merge
           message: "chore(gitops): sync core from ${{ github.repository }}@${{ github.sha }}"
           token: ${{ secrets.MANIFEST_REPO_TOKEN }}
 ```
+
+The `tag` input is passed to `manifest-repo publish --tag`, which renders every service image before publishing. The source repository label is populated automatically from the calling workflow's GitHub context.
 
 By default, `stack: core` updates `applications/core.yaml`. Set `target` to use another repository-relative path. `mode` accepts `merge` or `replace`, and Compose validation can be disabled with `validate-compose: "false"`.
 
@@ -90,6 +94,9 @@ export MANIFEST_REPO_TOKEN=github_token
 
 manifest-repo publish \
   --source /tmp/deploy-prod.yaml \
+  --registry registry.example \
+  --tag 2026-09-29-a1b2c3d \
+  --source-repository-url https://github.com/example/core \
   --repo example/manifests \
   --branch main \
   --stack core \
@@ -97,7 +104,7 @@ manifest-repo publish \
   --message "chore(gitops): sync core from example/core@a1b2c3d (2026-09-29-a1b2c3d)"
 ```
 
-With `--stack core`, the default target is `applications/core.yaml`. A custom path can be provided with `--target`.
+When `--registry`, `--tag`, or `--source-repository-url` is provided, `publish` first applies the same rendering as the `render` command. With `--stack core`, the default target is `applications/core.yaml`. A custom path can be provided with `--target`.
 
 The Git token is read from `MANIFEST_REPO_TOKEN` by default. Use `--token-env` to select a different environment variable. The token is passed to Git through process-local configuration rather than being embedded in the repository URL.
 
