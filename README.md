@@ -20,20 +20,22 @@ This gives the deployment state its own Git history, keeps application CI decoup
 
 ![Central repository approach](./docs/architecture-overview.svg)
 
-Application repositories own builds and releases. `manifest-repo` publishes the resulting deployment manifest to the central manifest repository, and the GitOps controller consumes that repository as the desired state.
+Application repositories own builds and releases. `manifest-repo` publishes the resulting deployment manifest to the central manifest repository, while [swarm-deploy](https://github.com/swarm-deploy/swarm-deploy) watches that repository and reconciles the cluster to the desired state.
 
-Each application repository publishes only the manifest it owns. The central repository combines those manifests into the desired state consumed by the GitOps controller.
+Each application repository publishes only the manifest it owns. Shared deployment files stay in the central repository alongside application manifests.
 
-A central repository might look like this:
+A central repository used by swarm-deploy might look like this:
 
 ```text
+stack.yaml
+networks.yaml
 applications/
 ├── api.yaml
 ├── frontend.yaml
 └── worker.yaml
 ```
 
-A release of `api`, for example, updates `applications/api.yaml`. The application workflow does not deploy directly to Docker Swarm; it only changes Git. The GitOps controller detects that change and performs reconciliation.
+A release of `api`, for example, updates `applications/api.yaml`. The application workflow does not deploy directly to Docker Swarm; it only changes Git. swarm-deploy detects the change in the central repository and performs reconciliation.
 
 ## GitHub Action
 
