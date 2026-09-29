@@ -27,7 +27,7 @@ Each application repository publishes only the manifest it owns. Shared deployme
 A central repository used by swarm-deploy might look like this:
 
 ```text
-stack.yaml
+stacks.yaml
 networks.yaml
 applications/
 ├── api.yaml
