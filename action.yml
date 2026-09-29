@@ -22,6 +22,10 @@ inputs:
   tag:
     description: Release tag used for rendered service images
     required: true
+  source-repository-url:
+    description: Source repository URL
+    required: false
+    default: ${{ github.server_url }}/${{ github.repository }}
   target:
     description: Target path inside the repository; overrides the stack-derived path
     required: false
@@ -69,7 +73,7 @@ runs:
     - --tag
     - ${{ inputs.tag }}
     - --source-repository-url
-    - ${{ github.server_url }}/${{ github.repository }}
+    - ${{ inputs.source-repository-url }}
     - --target
     - ${{ inputs.target }}
     - --mode
