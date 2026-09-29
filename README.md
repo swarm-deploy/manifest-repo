@@ -1,12 +1,55 @@
 # manifest-repo
 
-Tools for publishing deployment manifests from application repositories into a central Git repository consumed by GitOps systems such as [swarm-deploy](https://github.com/swarm-deploy/swarm-deploy).
+`manifest-repo` publishes application deployment manifests into a central Git repository that acts as the desired state for GitOps.
 
-It can be used as a GitHub Action or as a standalone Go CLI.
+The primary interface is the **GitHub Action**. Application repositories build and release their own images, then use `manifest-repo` to update the corresponding manifest in a shared deployment repository. A GitOps controller such as [swarm-deploy](https://github.com/swarm-deploy/swarm-deploy) reconciles the runtime from that repository.
+
+## Why manifest-repo?
+
+In a multi-application setup, each application repository usually knows how to build and release its own artifact. It should not also need to know how to access the deployment target or reconcile the whole environment.
+
+A central manifest repository separates those responsibilities:
+
+- application repositories own source code, image builds, and releases;
+- the manifest repository owns the desired deployment state;
+- the GitOps controller watches the manifest repository and applies that state.
+
+This gives the deployment state its own Git history, keeps application CI decoupled from the runtime, and provides one place to see which versions are supposed to be deployed across the environment.
+
+## Central repository approach
+
+```text
+application repositories
+        │
+        │ release
+        ▼
+manifest-repo GitHub Action
+        │
+        │ commit
+        ▼
+central manifest repository
+        │
+        │ desired state
+        ▼
+swarm-deploy / another GitOps controller
+```
+
+Each application repository publishes only the manifest it owns. The central repository combines those manifests into the desired state consumed by the GitOps controller.
+
+A central repository might look like this:
+
+```text
+applications/
+├── api.yaml
+├── frontend.yaml
+└── worker.yaml
+```
+
+A release of `api`, for example, updates `applications/api.yaml`. The application workflow does not deploy directly to Docker Swarm; it only changes Git. The GitOps controller detects that change and performs reconciliation.
 
 ## GitHub Action
 
-The Docker Action renders and publishes a Compose manifest by invoking the `manifest-repo publish` command. It uses the prebuilt `ghcr.io/swarm-deploy/manifest-repo:v1` image, which includes Git, Docker Compose validation, and the Go CLI.
+Use the Action from an application release workflow:
 
 ```yaml
 name: Publish manifest
@@ -22,53 +65,59 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Publish Compose manifest
-        uses: swarm-deploy/manifest-repo@v1
+      - name: Publish deployment manifest
+        uses: swarm-deploy/manifest-repo@v0.1.0
         with:
           source: deploy/prod.yaml
           repo: example/manifests
           branch: main
-          stack: core
+          stack: api
           registry: ghcr.io/example
           tag: ${{ github.event.release.tag_name }}
           mode: merge
-          message: "chore(gitops): sync core from ${{ github.repository }}@${{ github.sha }}"
+          message: "chore(gitops): sync api from ${{ github.repository }}@${{ github.sha }}"
           token: ${{ secrets.MANIFEST_REPO_TOKEN }}
 ```
 
-The `tag` input is passed to `manifest-repo publish --tag`, which renders every service image before publishing. The source repository label is populated automatically from the calling workflow's GitHub context.
+The token must have permission to push to the target repository.
 
-By default, `stack: core` updates `applications/core.yaml`. Set `target` to use another repository-relative path. `mode` accepts `merge` or `replace`, and Compose validation can be disabled with `validate-compose: "false"`.
+### What the Action does
 
-The token must have permission to push to the target repository. It is exposed to the CLI only through the action container environment and is not embedded in the Git clone URL.
+For a publish operation, `manifest-repo`:
 
-Stable `v1.x.y` releases update the floating Git tag `v1` to the same commit, so `uses: swarm-deploy/manifest-repo@v1` follows the latest stable v1 release. Prereleases do not move the floating tag.
+1. renders the application Compose manifest for the release;
+2. rewrites service images to the configured registry and tag;
+3. records the source repository in deployment labels;
+4. clones the central manifest repository;
+5. merges or replaces the target manifest;
+6. validates the resulting Compose file;
+7. commits and pushes the change.
 
-## Commands
+The Action does **not** build container images and does not deploy directly to Docker Swarm. Image building remains part of the application workflow; reconciliation remains the responsibility of the GitOps controller.
 
-### `render`
+### Main inputs
 
-Prepares an application Compose manifest for a release. It applies deterministic release rendering:
+| Input | Required | Description |
+| --- | --- | --- |
+| `source` | no | Source Compose file. Defaults to `deploy/prod.yaml`. |
+| `repo` | yes | Central manifest repository as `owner/name` or a Git URL. |
+| `branch` | no | Target branch. Defaults to `main`. |
+| `stack` | yes | Application/stack name. Also determines the default target path. |
+| `registry` | yes | Container registry used when rendering service images. |
+| `tag` | yes | Release tag used when rendering service images. |
+| `token` | yes | Git token with write access to the target repository. |
+| `message` | yes | Commit message for the manifest update. |
+| `target` | no | Explicit repository-relative target path. |
+| `mode` | no | `merge` or `replace`. Defaults to `merge`. |
+| `validate-compose` | no | Validate the resulting file with `docker compose config`. Defaults to `true`. |
 
-- every service image is replaced with `<registry>/applications/<stack>/<service>:<tag>`;
-- every service gets `org.swarm_deploy.github_repository=<source repository URL>` in `deploy.labels`;
-- both mapping and list Compose label syntax are supported.
+With `stack: api`, the default target is `applications/api.yaml`. Use `target` when the central repository uses a different layout.
 
-```bash
-manifest-repo render \
-  --source deploy/prod.yaml \
-  --output /tmp/deploy-prod.yaml \
-  --stack core \
-  --registry registry.example \
-  --tag 2026-09-29-a1b2c3d \
-  --source-repository-url https://github.com/example/core
-```
+See [action.yml](./action.yml) for the complete input reference.
 
-### `merge`
+## Merge behavior
 
-Updates a local manifest using the same merge rules as the previous CI scripts.
-
-`merge` preserves target entries and replaces/adds entries from the source for these Compose sections:
+In `merge` mode, entries from the published manifest replace or add entries in these Compose sections while preserving unrelated entries already present in the target:
 
 - `services`
 - `networks`
@@ -76,43 +125,15 @@ Updates a local manifest using the same merge rules as the previous CI scripts.
 - `secrets`
 - `configs`
 
-Other top-level keys from the source replace the corresponding target value. Entries inside a section are replaced as a whole; service definitions are not deep-merged.
+Entries are replaced as complete objects; service definitions are not deep-merged.
 
-```bash
-manifest-repo merge \
-  --source /tmp/deploy-prod.yaml \
-  --target applications/core.yaml \
-  --mode merge
-```
+Use `mode: replace` when the application should own the complete target file.
 
-Use `--mode replace` to replace the target file byte-for-byte.
+## CLI
 
-### `publish`
+The GitHub Action is backed by the `manifest-repo` Go CLI. The CLI is useful for local testing, custom CI systems, and lower-level automation.
 
-Clones the central repository, applies `merge` or `replace`, validates the resulting file with `docker compose config`, commits the change, and pushes the target branch.
-
-```bash
-export MANIFEST_REPO_TOKEN=github_token
-
-manifest-repo publish \
-  --source /tmp/deploy-prod.yaml \
-  --registry registry.example \
-  --tag 2026-09-29-a1b2c3d \
-  --source-repository-url https://github.com/example/core \
-  --repo example/manifests \
-  --branch main \
-  --stack core \
-  --mode merge \
-  --message "chore(gitops): sync core from example/core@a1b2c3d (2026-09-29-a1b2c3d)"
-```
-
-When `--registry`, `--tag`, or `--source-repository-url` is provided, `publish` first applies the same rendering as the `render` command. With `--stack core`, the default target is `applications/core.yaml`. A custom path can be provided with `--target`.
-
-The Git token is read from `MANIFEST_REPO_TOKEN` by default. Use `--token-env` to select a different environment variable. For HTTP(S) repositories, the token is passed to Git through process-local configuration scoped to the target repository URL rather than being embedded in the repository URL. SSH and local repository URLs do not receive an HTTP Authorization header.
-
-Compose validation is enabled by default for `publish`; use `--validate-compose=false` only when the target is intentionally not a Compose manifest.
-
-The CLI intentionally does not own image building or GitHub Release creation. Those remain responsibilities of the application release workflow.
+See [CLI reference](./docs/cli.md) for the `render`, `merge`, and `publish` commands.
 
 ## Development
 
