@@ -51,7 +51,7 @@ inputs:
 
 runs:
   using: docker
-  image: docker://ghcr.io/swarm-deploy/manifest-repo:v0.1.0
+  image: docker://ghcr.io/swarm-deploy/manifest-repo:v0
   env:
     MANIFEST_REPO_TOKEN: ${{ inputs.token }}
   args:
