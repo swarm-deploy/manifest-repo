@@ -18,21 +18,9 @@ This gives the deployment state its own Git history, keeps application CI decoup
 
 ## Central repository approach
 
-```text
-application repositories
-        │
-        │ release
-        ▼
-manifest-repo GitHub Action
-        │
-        │ commit
-        ▼
-central manifest repository
-        │
-        │ desired state
-        ▼
-swarm-deploy / another GitOps controller
-```
+![Central repository approach](./docs/architecture-overview.svg)
+
+Application repositories own builds and releases. `manifest-repo` publishes the resulting deployment manifest to the central manifest repository, and the GitOps controller consumes that repository as the desired state.
 
 Each application repository publishes only the manifest it owns. The central repository combines those manifests into the desired state consumed by the GitOps controller.
 
