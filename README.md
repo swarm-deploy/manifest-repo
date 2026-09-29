@@ -42,6 +42,8 @@ By default, `stack: core` updates `applications/core.yaml`. Set `target` to use 
 
 The token must have permission to push to the target repository. It is exposed to the CLI only through the action container environment and is not embedded in the Git clone URL.
 
+Stable `v1.x.y` releases update the floating Git tag `v1` to the same commit, so `uses: swarm-deploy/manifest-repo@v1` follows the latest stable v1 release. Prereleases do not move the floating tag.
+
 ## Commands
 
 ### `render`
@@ -106,7 +108,7 @@ manifest-repo publish \
 
 When `--registry`, `--tag`, or `--source-repository-url` is provided, `publish` first applies the same rendering as the `render` command. With `--stack core`, the default target is `applications/core.yaml`. A custom path can be provided with `--target`.
 
-The Git token is read from `MANIFEST_REPO_TOKEN` by default. Use `--token-env` to select a different environment variable. The token is passed to Git through process-local configuration rather than being embedded in the repository URL.
+The Git token is read from `MANIFEST_REPO_TOKEN` by default. Use `--token-env` to select a different environment variable. For HTTP(S) repositories, the token is passed to Git through process-local configuration scoped to the target repository URL rather than being embedded in the repository URL. SSH and local repository URLs do not receive an HTTP Authorization header.
 
 Compose validation is enabled by default for `publish`; use `--validate-compose=false` only when the target is intentionally not a Compose manifest.
 

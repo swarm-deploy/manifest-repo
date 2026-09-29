@@ -55,7 +55,7 @@ func RenderFile(source, output string, opts RenderOptions) error {
 		mappingSet(serviceCfg, "image", scalarNode(image))
 
 		deploy, _, ok := mappingLookup(serviceCfg, "deploy")
-		if !ok {
+		if !ok || isNullNode(deploy) {
 			deploy = mappingNode()
 			mappingSet(serviceCfg, "deploy", deploy)
 		}
@@ -73,7 +73,7 @@ func RenderFile(source, output string, opts RenderOptions) error {
 
 func setRepositoryLabel(deploy *yaml.Node, repositoryURL, serviceKey string) error {
 	labels, _, ok := mappingLookup(deploy, "labels")
-	if !ok {
+	if !ok || isNullNode(labels) {
 		labels = mappingNode()
 		mappingSet(labels, GitHubRepositoryLabel, scalarNode(repositoryURL))
 		mappingSet(deploy, "labels", labels)

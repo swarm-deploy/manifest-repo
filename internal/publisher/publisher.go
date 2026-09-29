@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,7 +57,7 @@ func Publish(cfg Config) (bool, error) {
 
 	repoDir := filepath.Join(workDir, "repo")
 	repoURL := repositoryURL(cfg.Repository)
-	authEnv := gitAuthEnv(cfg.Token)
+	authEnv := gitAuthEnv(cfg.Token, repoURL)
 	if err := runGit("", authEnv, "clone", "--depth", "1", "--branch", cfg.Branch, repoURL, repoDir); err != nil {
 		return false, err
 	}
@@ -109,14 +110,23 @@ func repositoryURL(repository string) string {
 	return "https://github.com/" + strings.TrimSuffix(repository, ".git") + ".git"
 }
 
-func gitAuthEnv(token string) []string {
+func gitAuthEnv(token, repository string) []string {
 	if token == "" {
 		return nil
 	}
+
+	repositoryURL, err := url.Parse(repository)
+	if err != nil || repositoryURL.Host == "" || (repositoryURL.Scheme != "http" && repositoryURL.Scheme != "https") {
+		return nil
+	}
+	repositoryURL.RawQuery = ""
+	repositoryURL.Fragment = ""
+	authScope := repositoryURL.String()
+
 	credentials := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
 	return []string{
 		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraHeader",
+		"GIT_CONFIG_KEY_0=http." + authScope + ".extraHeader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + credentials,
 	}
 }

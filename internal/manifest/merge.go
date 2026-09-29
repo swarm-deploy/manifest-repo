@@ -68,6 +68,9 @@ func mergeFile(source, target string) error {
 			mappingSet(targetRoot, key, cloneNode(sourceValue))
 			continue
 		}
+		if isNullNode(sourceValue) {
+			continue
+		}
 
 		if sourceValue.Kind != yaml.MappingNode {
 			return fmt.Errorf("source section %s must be a mapping", key)

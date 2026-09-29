@@ -96,3 +96,45 @@ func TestRenderFileRejectsNonStringListLabel(t *testing.T) {
 		t.Fatalf("expected label type error, got %v", err)
 	}
 }
+
+func TestRenderFileTreatsNullDeployAndLabelsAsAbsent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.yaml")
+	output := filepath.Join(dir, "rendered.yaml")
+	mustWrite(t, source, `services:
+  null-deploy:
+    deploy: null
+  null-labels:
+    deploy:
+      labels: null
+`)
+
+	err := RenderFile(source, output, RenderOptions{
+		StackName:           "core",
+		Registry:            "registry.example",
+		ReleaseTag:          "v1",
+		SourceRepositoryURL: "https://github.com/acme/core",
+	})
+	if err != nil {
+		t.Fatalf("RenderFile() error = %v", err)
+	}
+
+	var got map[string]any
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	services := got["services"].(map[string]any)
+	for _, serviceName := range []string{"null-deploy", "null-labels"} {
+		service := services[serviceName].(map[string]any)
+		labels := service["deploy"].(map[string]any)["labels"].(map[string]any)
+		if labels[GitHubRepositoryLabel] != "https://github.com/acme/core" {
+			t.Fatalf("repository label not set for %s: %#v", serviceName, labels)
+		}
+	}
+}

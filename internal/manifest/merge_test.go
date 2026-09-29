@@ -104,6 +104,65 @@ func TestApplyFileReplace(t *testing.T) {
 	}
 }
 
+func TestApplyFileMergeSkipsNullSections(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.yaml")
+	target := filepath.Join(dir, "target.yaml")
+	mustWrite(t, source, `services: null
+networks: null
+volumes: null
+secrets: null
+configs: null
+name: updated
+`)
+	mustWrite(t, target, `services:
+  api:
+    image: registry/api:v1
+networks:
+  shared:
+    external: true
+volumes:
+  data: {}
+secrets:
+  token:
+    external: true
+configs:
+  settings:
+    external: true
+name: old
+`)
+
+	if err := ApplyFile(source, target, MergeModeMerge); err != nil {
+		t.Fatalf("ApplyFile() error = %v", err)
+	}
+
+	var got map[string]any
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	for section, entry := range map[string]string{
+		"services": "api",
+		"networks": "shared",
+		"volumes":  "data",
+		"secrets":  "token",
+		"configs":  "settings",
+	} {
+		values := got[section].(map[string]any)
+		if _, ok := values[entry]; !ok {
+			t.Fatalf("null source section %s changed target: %#v", section, values)
+		}
+	}
+	if got["name"] != "updated" {
+		t.Fatalf("non-merge section was not updated: %#v", got["name"])
+	}
+}
+
 func mustWrite(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
