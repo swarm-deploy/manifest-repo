@@ -115,10 +115,10 @@ func runPublish(args []string) error {
 		}
 		publishSource = rendered.Name()
 		if err := rendered.Close(); err != nil {
-			os.Remove(publishSource)
+			_ = os.Remove(publishSource)
 			return fmt.Errorf("close rendered manifest: %w", err)
 		}
-		defer os.Remove(publishSource)
+		defer func() { _ = os.Remove(publishSource) }()
 
 		if err := manifest.RenderFile(*source, publishSource, manifest.RenderOptions{
 			StackName:           *stack,
