@@ -52,7 +52,7 @@ func Publish(cfg Config) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("create temporary directory: %w", err)
 	}
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
 
 	repoDir := filepath.Join(workDir, "repo")
 	repoURL := repositoryURL(cfg.Repository)
