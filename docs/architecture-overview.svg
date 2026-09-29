@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="820" height="120" viewBox="0 0 820 120" role="img" aria-labelledby="title desc">
   <title id="title">manifest-repo central repository flow</title>
-  <desc id="desc">An application repository publishes through manifest-repo into a central manifest repository consumed by a GitOps controller.</desc>
+  <desc id="desc">An application repository publishes through manifest-repo into a central manifest repository consumed by swarm-deploy.</desc>
 
   <style>
     .node {
@@ -82,5 +82,5 @@
   <path class="arrow" d="M590 60 H620"/>
 
   <rect class="node" x="630" y="35" width="180" height="50" rx="8"/>
-  <text class="label" x="720" y="60">GitOps Controller</text>
+  <text class="label" x="720" y="60">swarm-deploy</text>
 </svg>
