@@ -1,135 +1,170 @@
 # manifest-repo
 
-`manifest-repo` publishes application deployment manifests into a central Git repository that acts as the desired state for GitOps.
+`manifest-repo` renders application Compose manifests and publishes them into a central Git repository used as desired state by [swarm-deploy](https://github.com/swarm-deploy/swarm-deploy).
 
-The primary interface is the **GitHub Action**. Application repositories build and release their own images, then use `manifest-repo` to update the corresponding manifest in a shared deployment repository. A GitOps controller such as [swarm-deploy](https://github.com/swarm-deploy/swarm-deploy) reconciles the runtime from that repository.
+Application repositories still own image builds and notifications. `manifest-repo` only prepares desired state, reports semantic changes, and optionally commits and pushes the result.
 
-## Why manifest-repo?
+## Publish in one step
 
-In a multi-application setup, each application repository usually knows how to build and release its own artifact. It should not also need to know how to access the deployment target or reconcile the whole environment.
-
-A central manifest repository separates those responsibilities:
-
-- application repositories own source code, image builds, and releases;
-- the manifest repository owns the desired deployment state;
-- the GitOps controller watches the manifest repository and applies that state.
-
-This gives the deployment state its own Git history, keeps application CI decoupled from the runtime, and provides one place to see which versions are supposed to be deployed across the environment.
-
-## Central repository approach
-
-![Central repository approach](./docs/architecture-overview.svg)
-
-Application repositories own builds and releases. `manifest-repo` publishes the resulting deployment manifest to the central manifest repository, while [swarm-deploy](https://github.com/swarm-deploy/swarm-deploy) watches that repository and reconciles the cluster to the desired state.
-
-Each application repository publishes only the manifest it owns. Shared deployment files stay in the central repository alongside application manifests.
-
-A central repository used by swarm-deploy might look like this:
-
-```text
-stacks.yaml
-networks.yaml
-applications/
-├── api.yaml
-├── frontend.yaml
-└── worker.yaml
-```
-
-A release of `api`, for example, updates `applications/api.yaml`. The application workflow does not deploy directly to Docker Swarm; it only changes Git. swarm-deploy detects the change in the central repository and performs reconciliation.
-
-## GitHub Action
-
-Use the Action from an application release workflow:
+The existing Action flow remains the default:
 
 ```yaml
-name: Publish manifest
-
-on:
-  release:
-    types: [published]
-
-jobs:
-  publish-manifest:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Publish deployment manifest
-        uses: swarm-deploy/manifest-repo@v0.1.0
-        with:
-          source: deploy/prod.yaml
-          repo: example/manifests
-          branch: main
-          stack: api
-          registry: ghcr.io/example
-          tag: ${{ github.event.release.tag_name }}
-          mode: merge
-          message: "chore(gitops): sync api from ${{ github.repository }}@${{ github.sha }}"
-          token: ${{ secrets.MANIFEST_REPO_TOKEN }}
+- name: Publish deployment manifest
+  uses: swarm-deploy/manifest-repo@v0
+  with:
+    source: deploy/prod.yaml
+    repo: example/manifests
+    branch: main
+    stack: api
+    registry: ghcr.io/example
+    tag: ${{ github.sha }}
+    mode: merge
+    message: "chore(gitops): sync api from ${{ github.repository }}@${{ github.sha }}"
+    token: ${{ secrets.MANIFEST_REPO_TOKEN }}
 ```
 
-The token must have permission to push to the target repository.
+With the default `operation: publish`, the Action prepares the source, clones the desired-state repository, simulates the merge or replacement, calculates a semantic diff, validates the result, commits, and pushes it.
 
-### What the Action does
+## Render, inspect, and publish
 
-For a publish operation, `manifest-repo`:
+Use separate operations when image builds depend on the planned desired-state changes. `render` never commits or pushes. Its `rendered-manifest` output can be passed back to `publish` with `rendered: "true"`; this prevents template and release rendering from running twice.
 
-1. renders the application Compose manifest for the release;
-2. rewrites service images to the configured registry and tag;
-3. records the source repository in deployment labels;
-4. clones the central manifest repository;
-5. merges or replaces the target manifest;
-6. validates the resulting Compose file;
-7. commits and pushes the change.
+```yaml
+- name: Render desired state
+  id: render
+  uses: swarm-deploy/manifest-repo@v0
+  with:
+    operation: render
+    source: deploy/prod.yaml
+    output: .manifest-repo/api.yaml
+    repo: example/manifests
+    branch: main
+    stack: api
+    registry: ghcr.io/example
+    tag: ${{ github.sha }}
+    template: "true"
+    token: ${{ secrets.MANIFEST_REPO_TOKEN }}
 
-The Action does **not** build container images and does not deploy directly to Docker Swarm. Image building remains part of the application workflow; reconciliation remains the responsibility of the GitOps controller.
+- name: Inspect migration change
+  id: inspect
+  env:
+    RESULT: ${{ steps.render.outputs.result }}
+  run: |
+    if jq -e '.changes[] | select(.id == "init-job/api/migrate" and .change == "updated" and (.changed_fields | index("image")))' <<<"$RESULT" >/dev/null; then
+      echo "migration_changed=true" >> "$GITHUB_OUTPUT"
+    else
+      echo "migration_changed=false" >> "$GITHUB_OUTPUT"
+    fi
 
-### Main inputs
+- name: Build migration image
+  if: ${{ steps.inspect.outputs.migration_changed == 'true' }}
+  run: ./scripts/build-migrations
 
-| Input | Required | Description |
-| --- | --- | --- |
-| `source` | no | Source Compose file. Defaults to `deploy/prod.yaml`. |
-| `repo` | yes | Central manifest repository as `owner/name` or a Git URL. |
-| `branch` | no | Target branch. Defaults to `main`. |
-| `stack` | yes | Application/stack name. Also determines the default target path. |
-| `registry` | yes | Container registry used when rendering service images. |
-| `tag` | yes | Release tag used when rendering service images. |
-| `token` | yes | Git token with write access to the target repository. |
-| `message` | yes | Commit message for the manifest update. |
-| `target` | no | Explicit repository-relative target path. |
-| `mode` | no | `merge` or `replace`. Defaults to `merge`. |
-| `validate-compose` | no | Validate the resulting file with `docker compose config`. Defaults to `true`. |
+- name: Publish rendered desired state
+  uses: swarm-deploy/manifest-repo@v0
+  with:
+    operation: publish
+    source: ${{ steps.render.outputs.rendered-manifest }}
+    rendered: "true"
+    repo: example/manifests
+    branch: main
+    stack: api
+    message: "chore(gitops): sync api from ${{ github.repository }}@${{ github.sha }}"
+    token: ${{ secrets.MANIFEST_REPO_TOKEN }}
+```
 
-With `stack: api`, the default target is `applications/api.yaml`. Use `target` when the central repository uses a different layout.
+The full locally runnable example is [`.github/workflows/manifest-repo-act.yaml`](./.github/workflows/manifest-repo-act.yaml). It verifies both branches: a migration build runs when the init-job image changes and is skipped after the rendered manifest has been published.
 
-See [action.yml](./action.yml) for the complete input reference.
+## Go template input
+
+Set `template: "true"` to execute the complete source file with Go `text/template` before YAML parsing. Templates use `missingkey=error` and expose one helper:
+
+```gotemplate
+{{ hashFiles "go.mod" "go.sum" "internal/**" "!internal/generated/**" }}
+```
+
+`hashFiles` calculates SHA-256 hashes in stable path order using the source workspace as its root. It supports multiple patterns, `**`, and ordered `!` exclusions. No matches return an empty string. Patterns that traverse above the workspace and symlinks that resolve outside it are rejected.
+
+For example, a migration image can use independent source hashes:
+
+```yaml
+services:
+  api:
+    image: ignored-by-release-rendering
+    x-init-deploy-jobs:
+      - name: migrate
+        image: ghcr.io/acme/api:{{ hashFiles "cmd/api/**" "internal/**" }}-migrations-{{ hashFiles "migrations/**" }}
+```
+
+No other template helper library is included.
+
+## Structured result
+
+Both operations print versioned JSON and expose it as the Action `result` output. Use `${{ fromJSON(steps.render.outputs.result).changed }}` for simple conditions or inspect `changes` for an exact object and field.
+
+```json
+{
+  "schema_version": "v1",
+  "operation": "render",
+  "changed": true,
+  "stack": "api",
+  "target": "applications/api.yaml",
+  "changes": [
+    {
+      "id": "init-job/api/migrate",
+      "kind": "init_job",
+      "service": "api",
+      "name": "migrate",
+      "change": "updated",
+      "changed_fields": ["image"],
+      "details": {
+        "image": {
+          "before": "ghcr.io/acme/api:old",
+          "after": "ghcr.io/acme/api:new"
+        }
+      }
+    }
+  ],
+  "source": {
+    "repository": "https://github.com/acme/api",
+    "revision": "source-commit"
+  },
+  "desired_state": {
+    "repository": "example/manifests",
+    "revision": "desired-state-commit"
+  }
+}
+```
+
+Logical object kinds are `service`, `init_job`, `config`, `secret`, `network`, and `volume`. Init jobs under `x-init-deploy-jobs` are compared independently from their service. Changes are `added`, `updated`, or `removed`.
+
+Values are included only for safe fields: `image`, `replicas`, `ports`, and `constraints`. Environment values, secret values, config contents, and other potentially sensitive values never appear in `details`.
+
+Action outputs:
+
+| Output | Description |
+| --- | --- |
+| `result` | Compact v1 JSON result for `fromJSON(...)` or another consumer. |
+| `changed` | `true` when the simulated desired state has semantic changes. |
+| `rendered-manifest` | Path supplied through `output`. |
+| `revision` | Current desired-state revision, or the new commit after publish. |
+
+See [action.yml](./action.yml) for all inputs.
 
 ## Merge behavior
 
-In `merge` mode, entries from the published manifest replace or add entries in these Compose sections while preserving unrelated entries already present in the target:
+In `merge` mode, published entries replace or add entries in `services`, `networks`, `volumes`, `secrets`, and `configs`; unrelated target entries remain. Entries are complete objects and are not deep-merged. `replace` makes the source own the complete target file.
 
-- `services`
-- `networks`
-- `volumes`
-- `secrets`
-- `configs`
+With `stack: api`, the default target is `applications/api.yaml`.
 
-Entries are replaced as complete objects; service definitions are not deep-merged.
+## CLI and development
 
-Use `mode: replace` when the application should own the complete target file.
-
-## CLI
-
-The GitHub Action is backed by the `manifest-repo` Go CLI. The CLI is useful for local testing, custom CI systems, and lower-level automation.
-
-See [CLI reference](./docs/cli.md) for the `render`, `merge`, and `publish` commands.
-
-## Development
+See [CLI reference](./docs/cli.md) for direct use.
 
 ```bash
 go test ./...
+test -z "$(gofmt -l .)"
+go vet ./...
 go build ./cmd/manifest-repo
-docker build -t manifest-repo-action:test .
-docker run --rm manifest-repo-action:test help
+golangci-lint run
 ```

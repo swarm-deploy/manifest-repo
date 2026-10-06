@@ -1,14 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	githuboutput "github.com/ci-space/github-output"
 	"github.com/swarm-deploy/manifest-repo/internal/manifest"
 	"github.com/swarm-deploy/manifest-repo/internal/publisher"
+	"github.com/swarm-deploy/manifest-repo/internal/result"
 )
 
 func main() {
@@ -26,11 +29,11 @@ func run(args []string) error {
 
 	switch args[0] {
 	case "render":
-		return runRender(args[1:])
+		return runOperation(args[1:], false)
 	case "merge":
 		return runMerge(args[1:])
 	case "publish":
-		return runPublish(args[1:])
+		return runOperation(args[1:], true)
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -39,26 +42,81 @@ func run(args []string) error {
 	}
 }
 
-func runRender(args []string) error {
-	fs := flag.NewFlagSet("render", flag.ContinueOnError)
+func runOperation(args []string, publish bool) error {
+	name := "render"
+	if publish {
+		name = "publish"
+	}
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	source := fs.String("source", "deploy/prod.yaml", "source Compose manifest")
-	output := fs.String("output", "", "rendered manifest path")
+	output := fs.String("output", "", "resulting manifest path")
 	stack := fs.String("stack", "", "stack name")
-	registry := fs.String("registry", "", "container registry")
-	tag := fs.String("tag", "", "release image tag")
-	repositoryURL := fs.String("source-repository-url", "", "source repository URL added to service labels")
+	registry := fs.String("registry", "", "container registry used to render service images")
+	tag := fs.String("tag", "", "release image tag used to render service images")
+	repositoryURL := fs.String("source-repository-url", "", "source repository URL added to service labels and provenance")
+	sourceRevision := fs.String("source-revision", "", "source repository revision for provenance")
+	repository := fs.String("repo", "", "target repository as owner/name, URL, or local path")
+	branch := fs.String("branch", "main", "target repository branch")
+	target := fs.String("target", "", "target path inside repository")
+	mode := fs.String("mode", string(manifest.MergeModeMerge), "operation mode: merge or replace")
+	tokenEnv := fs.String("token-env", "MANIFEST_REPO_TOKEN", "environment variable containing Git token")
+	gitUser := fs.String("git-user", "manifest-repo", "Git commit author name")
+	gitEmail := fs.String("git-email", "manifest-repo@users.noreply.github.com", "Git commit author email")
+	message := fs.String("message", "", "Git commit message")
+	validate := fs.Bool("validate-compose", true, "validate target with docker compose config")
+	templateInput := fs.Bool("template", false, "execute the whole input as a strict Go template")
+	workspace := fs.String("workspace", defaultWorkspace(), "workspace root used by hashFiles")
+	rendered := fs.Bool("rendered", false, "source is a previously rendered manifest")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *output == "" {
-		return fmt.Errorf("--output is required")
+	if *target == "" && *stack != "" {
+		if !validStackName(*stack) {
+			return fmt.Errorf("invalid stack name %q: allowed characters are letters, digits, dot, underscore, and hyphen", *stack)
+		}
+		*target = filepath.ToSlash(filepath.Join("applications", *stack+".yaml"))
 	}
-	return manifest.RenderFile(*source, *output, manifest.RenderOptions{
-		StackName:           *stack,
-		Registry:            *registry,
-		ReleaseTag:          *tag,
-		SourceRepositoryURL: *repositoryURL,
-	})
+	if !publish && *output == "" {
+		return fmt.Errorf("--output is required for render")
+	}
+
+	cfg := publisher.Config{
+		SourceFile:       *source,
+		OutputFile:       *output,
+		SourceIsRendered: *rendered,
+		Template:         *templateInput,
+		WorkspaceRoot:    *workspace,
+		RenderOptions: manifest.RenderOptions{
+			StackName:           *stack,
+			Registry:            *registry,
+			ReleaseTag:          *tag,
+			SourceRepositoryURL: *repositoryURL,
+		},
+		Repository:       *repository,
+		Branch:           *branch,
+		TargetFile:       *target,
+		Stack:            *stack,
+		Mode:             manifest.MergeMode(*mode),
+		Token:            os.Getenv(*tokenEnv),
+		GitUserName:      *gitUser,
+		GitUserEmail:     *gitEmail,
+		CommitMessage:    *message,
+		ValidateCompose:  *validate,
+		SourceRepository: *repositoryURL,
+		SourceRevision:   *sourceRevision,
+	}
+
+	var resultValue result.Result
+	var err error
+	if publish {
+		resultValue, err = publisher.Publish(cfg)
+	} else {
+		resultValue, err = publisher.Render(cfg)
+	}
+	if err != nil {
+		return err
+	}
+	return emitResult(resultValue, *output)
 }
 
 func runMerge(args []string) error {
@@ -78,79 +136,38 @@ func runMerge(args []string) error {
 	return manifest.ApplyFile(*source, *target, manifest.MergeMode(*mode))
 }
 
-func runPublish(args []string) error {
-	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
-	source := fs.String("source", "", "source manifest")
-	registry := fs.String("registry", "", "container registry used to render service images")
-	tag := fs.String("tag", "", "release image tag used to render service images")
-	repositoryURL := fs.String("source-repository-url", "", "source repository URL added to service labels")
-	repository := fs.String("repo", "", "target repository as owner/name, URL, or local path")
-	branch := fs.String("branch", "main", "target repository branch")
-	target := fs.String("target", "", "target path inside repository")
-	stack := fs.String("stack", "", "stack name; defaults target to applications/<stack>.yaml")
-	mode := fs.String("mode", string(manifest.MergeModeMerge), "publish mode: merge or replace")
-	tokenEnv := fs.String("token-env", "MANIFEST_REPO_TOKEN", "environment variable containing Git token")
-	gitUser := fs.String("git-user", "manifest-repo", "Git commit author name")
-	gitEmail := fs.String("git-email", "manifest-repo@users.noreply.github.com", "Git commit author email")
-	message := fs.String("message", "", "Git commit message")
-	validate := fs.Bool("validate-compose", true, "validate target with docker compose config")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *target == "" && *stack != "" {
-		if !validStackName(*stack) {
-			return fmt.Errorf("invalid stack name %q: allowed characters are letters, digits, dot, underscore, and hyphen", *stack)
-		}
-		*target = filepath.ToSlash(filepath.Join("applications", *stack+".yaml"))
-	}
-	if *message == "" {
-		return fmt.Errorf("--message is required")
-	}
-
-	publishSource := *source
-	if *registry != "" || *tag != "" || *repositoryURL != "" {
-		rendered, err := os.CreateTemp("", "manifest-repo-rendered-*.yaml")
-		if err != nil {
-			return fmt.Errorf("create rendered manifest: %w", err)
-		}
-		publishSource = rendered.Name()
-		if err := rendered.Close(); err != nil {
-			_ = os.Remove(publishSource)
-			return fmt.Errorf("close rendered manifest: %w", err)
-		}
-		defer func() { _ = os.Remove(publishSource) }()
-
-		if err := manifest.RenderFile(*source, publishSource, manifest.RenderOptions{
-			StackName:           *stack,
-			Registry:            *registry,
-			ReleaseTag:          *tag,
-			SourceRepositoryURL: *repositoryURL,
-		}); err != nil {
-			return fmt.Errorf("render manifest: %w", err)
-		}
-	}
-
-	changed, err := publisher.Publish(publisher.Config{
-		SourceFile:      publishSource,
-		Repository:      *repository,
-		Branch:          *branch,
-		TargetFile:      *target,
-		Mode:            manifest.MergeMode(*mode),
-		Token:           os.Getenv(*tokenEnv),
-		GitUserName:     *gitUser,
-		GitUserEmail:    *gitEmail,
-		CommitMessage:   *message,
-		ValidateCompose: *validate,
-	})
+func emitResult(resultValue result.Result, output string) error {
+	compact, err := json.Marshal(resultValue)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode structured result: %w", err)
 	}
-	if changed {
-		fmt.Println("manifest published")
-	} else {
-		fmt.Println("no manifest changes")
+	pretty, err := json.MarshalIndent(resultValue, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode structured result: %w", err)
 	}
-	return nil
+	if _, err := fmt.Fprintln(os.Stdout, string(pretty)); err != nil {
+		return fmt.Errorf("write structured result: %w", err)
+	}
+
+	revision := ""
+	if resultValue.DesiredState != nil {
+		revision = resultValue.DesiredState.Revision
+	}
+	return githuboutput.WhenAvailable(func() error {
+		return githuboutput.WriteMap(map[string]string{
+			"result":            string(compact),
+			"changed":           fmt.Sprintf("%t", resultValue.Changed),
+			"rendered-manifest": output,
+			"revision":          revision,
+		})
+	})
+}
+
+func defaultWorkspace() string {
+	if workspace := os.Getenv("GITHUB_WORKSPACE"); workspace != "" {
+		return workspace
+	}
+	return "."
 }
 
 func validStackName(value string) bool {
@@ -175,7 +192,7 @@ Usage:
   manifest-repo publish [flags]
 
 Commands:
-  render   rewrite release images and add source repository labels
-  merge    merge or replace a manifest file
-  publish  update a manifest in a Git repository, commit, and push it`)
+  render   simulate an update and write the resulting manifest plus semantic JSON
+  merge    merge or replace a local manifest file
+  publish  run the render pipeline, validate, commit, and push`)
 }

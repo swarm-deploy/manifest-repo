@@ -10,9 +10,13 @@ import (
 const GitHubRepositoryLabel = "org.swarm_deploy.github_repository"
 
 type RenderOptions struct {
-	StackName           string
-	Registry            string
-	ReleaseTag          string
+	// StackName is used in generated service image names.
+	StackName string
+	// Registry is the registry prefix for generated service images.
+	Registry string
+	// ReleaseTag is the tag for generated service images.
+	ReleaseTag string
+	// SourceRepositoryURL is written to the swarm-deploy repository label.
 	SourceRepositoryURL string
 }
 

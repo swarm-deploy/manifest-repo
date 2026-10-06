@@ -1,42 +1,113 @@
 # CLI reference
 
-The `manifest-repo` CLI is the implementation behind the GitHub Action and can also be used directly from local tooling or other CI systems.
-
-The main user-facing interface of the project is the [GitHub Action](../README.md#github-action).
+The CLI supports the same two-stage flow as the GitHub Action. `render` and `publish` use the same preparation, clone, merge or replace simulation, and semantic diff pipeline. Both print a v1 JSON result to stdout.
 
 ## `render`
 
-Prepares an application Compose manifest for a release.
-
-It applies deterministic release rendering:
-
-- every service image is replaced with `<registry>/applications/<stack>/<service>:<tag>`;
-- every service gets `org.swarm_deploy.github_repository=<source repository URL>` in `deploy.labels`;
-- both mapping and list Compose label syntax are supported.
+`render` reads the current desired state and writes the simulated resulting manifest without committing or pushing:
 
 ```bash
 manifest-repo render \
   --source deploy/prod.yaml \
-  --output /tmp/deploy-prod.yaml \
+  --output .manifest-repo/core.yaml \
+  --repo example/manifests \
+  --branch main \
   --stack core \
   --registry registry.example \
   --tag 2026-09-29-a1b2c3d \
-  --source-repository-url https://github.com/example/core
+  --source-repository-url https://github.com/example/core \
+  --source-revision a1b2c3d \
+  --mode merge
 ```
+
+Preparation order is:
+
+1. optionally execute the whole source as a Go template;
+2. apply release image and repository-label rendering when render options are supplied;
+3. clone current desired state;
+4. simulate merge or replacement;
+5. calculate semantic changes;
+6. write the resulting manifest and structured result.
+
+Use `--template` to enable strict `text/template` processing. `--workspace` selects the root used by `hashFiles`; it defaults to `GITHUB_WORKSPACE`, then the current directory.
+
+```yaml
+services:
+  api:
+    image: ignored
+    x-init-deploy-jobs:
+      - name: migrate
+        image: registry.example/api:{{ hashFiles "go.mod" "internal/**" }}-migrations-{{ hashFiles "migrations/**" "!migrations/testdata/**" }}
+```
+
+Template syntax errors and missing keys fail the operation before YAML parsing. `hashFiles` supports multiple ordered patterns, `**`, and `!` exclusions. It returns an empty string for no matches and rejects workspace traversal or symlink escapes.
+
+## `publish`
+
+The one-step flow prepares and publishes a source manifest:
+
+```bash
+export MANIFEST_REPO_TOKEN=github_token
+
+manifest-repo publish \
+  --source deploy/prod.yaml \
+  --repo example/manifests \
+  --branch main \
+  --stack core \
+  --registry registry.example \
+  --tag 2026-09-29-a1b2c3d \
+  --source-repository-url https://github.com/example/core \
+  --source-revision a1b2c3d \
+  --mode merge \
+  --message "chore(gitops): sync core"
+```
+
+To publish output from a prior `render`, pass `--rendered`. Template and release rendering are skipped even when their flags are also present:
+
+```bash
+manifest-repo publish \
+  --source .manifest-repo/core.yaml \
+  --rendered \
+  --repo example/manifests \
+  --branch main \
+  --stack core \
+  --mode merge \
+  --message "chore(gitops): sync core"
+```
+
+After simulation, `publish` validates with `docker compose config`, commits when semantic changes exist, pushes, and returns the new desired-state revision. Use `--validate-compose=false` for a fixture or a target intentionally unsupported by the local Compose version.
+
+The Git token is read from `MANIFEST_REPO_TOKEN` by default. `--token-env` selects another environment variable. HTTP credentials are passed with repository-scoped process-local Git configuration and are not embedded in the URL. SSH and local repositories receive no HTTP authorization header.
+
+## Structured JSON
+
+The result contains:
+
+- `schema_version`: currently `v1`;
+- `operation`: `render` or `publish`;
+- `changed`: semantic change status;
+- `stack` and repository-relative `target`;
+- `changes`: stable ordered logical-object changes;
+- source and desired-state provenance when available.
+
+Logical object IDs use these forms:
+
+```text
+service/<name>
+init-job/<service>/<name>
+config/<name>
+secret/<name>
+network/<name>
+volume/<name>
+```
+
+`changed_fields` lists field names without values. `details.before` and `details.after` are emitted only for `image`, `replicas`, `ports`, and `constraints`. Sensitive values such as environment variables, secrets, and config contents are not emitted.
+
+When `GITHUB_OUTPUT` is available, the CLI uses `github.com/ci-space/github-output` to write `result`, `changed`, `rendered-manifest`, and `revision` outputs.
 
 ## `merge`
 
-Updates a local manifest using the same merge rules used by the publish flow.
-
-`merge` preserves target entries and replaces or adds entries from the source for these Compose sections:
-
-- `services`
-- `networks`
-- `volumes`
-- `secrets`
-- `configs`
-
-Other top-level keys from the source replace the corresponding target value. Entries inside a section are replaced as a whole; service definitions are not deep-merged.
+`merge` remains a local low-level command:
 
 ```bash
 manifest-repo merge \
@@ -45,35 +116,4 @@ manifest-repo merge \
   --mode merge
 ```
 
-Use `--mode replace` to replace the target file byte-for-byte.
-
-## `publish`
-
-Clones the central repository, updates the target manifest, validates it, commits the change, and pushes the target branch.
-
-```bash
-export MANIFEST_REPO_TOKEN=github_token
-
-manifest-repo publish \
-  --source /tmp/deploy-prod.yaml \
-  --registry registry.example \
-  --tag 2026-09-29-a1b2c3d \
-  --source-repository-url https://github.com/example/core \
-  --repo example/manifests \
-  --branch main \
-  --stack core \
-  --mode merge \
-  --message "chore(gitops): sync core from example/core@a1b2c3d (2026-09-29-a1b2c3d)"
-```
-
-When `--registry`, `--tag`, or `--source-repository-url` is provided, `publish` first applies the same rendering as the `render` command.
-
-With `--stack core`, the default target is `applications/core.yaml`. A custom path can be provided with `--target`.
-
-The Git token is read from `MANIFEST_REPO_TOKEN` by default. Use `--token-env` to select a different environment variable.
-
-For HTTP(S) repositories, the token is passed to Git through process-local configuration scoped to the target repository URL rather than being embedded in the repository URL. SSH and local repository URLs do not receive an HTTP Authorization header.
-
-Compose validation is enabled by default. Use `--validate-compose=false` only when the target is intentionally not a Compose manifest.
-
-The CLI intentionally does not own image building or GitHub Release creation. Those remain responsibilities of the application release workflow.
+In `merge` mode, source entries replace or add complete objects in `services`, `networks`, `volumes`, `secrets`, and `configs`; unrelated target entries remain. `--mode replace` replaces the target file.

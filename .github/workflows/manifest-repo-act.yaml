@@ -1,0 +1,133 @@
+name: Manifest render inspect publish example
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-inspect-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Prepare local desired-state repository
+        shell: bash
+        run: |
+          rm -rf .act-fixtures
+          mkdir -p .act-fixtures/desired-work/applications .act-fixtures/migrations
+          printf 'migration-v2\n' > .act-fixtures/migrations/001.sql
+          cat > .act-fixtures/desired-work/applications/api.yaml <<'YAML'
+          services:
+            api:
+              image: registry.example/applications/api/api:app-v1
+              x-init-deploy-jobs:
+                - name: migrate
+                  image: registry.example/applications/api/migrations:old
+          YAML
+          cat > .act-fixtures/source.yaml <<'YAML'
+          services:
+            api:
+              image: ignored
+              x-init-deploy-jobs:
+                - name: migrate
+                  image: registry.example/applications/api/migrations:{{ hashFiles ".act-fixtures/migrations/**" }}
+          YAML
+          git -C .act-fixtures/desired-work init -b main
+          git -C .act-fixtures/desired-work config user.name fixture
+          git -C .act-fixtures/desired-work config user.email fixture@example.invalid
+          git -C .act-fixtures/desired-work add applications/api.yaml
+          git -C .act-fixtures/desired-work commit -m initial
+          git clone --bare .act-fixtures/desired-work .act-fixtures/desired.git
+
+      - name: Render and diff
+        id: render
+        uses: ./
+        with:
+          operation: render
+          source: .act-fixtures/source.yaml
+          output: .act-fixtures/rendered.yaml
+          repo: ./.act-fixtures/desired.git
+          branch: main
+          stack: api
+          registry: registry.example
+          tag: app-v2
+          template: "true"
+          token: fixture-token
+          validate-compose: "false"
+
+      - name: Inspect semantic result
+        id: inspect
+        shell: bash
+        env:
+          RESULT: ${{ steps.render.outputs.result }}
+          CHANGED: ${{ fromJSON(steps.render.outputs.result).changed }}
+        run: |
+          test "$CHANGED" = "true"
+          if jq -e '.changes[] | select(.id == "init-job/api/migrate" and .change == "updated" and (.changed_fields | index("image")))' <<<"$RESULT" >/dev/null; then
+            echo "migration_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "migration_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build migration image when its image changed
+        if: ${{ steps.inspect.outputs.migration_changed == 'true' }}
+        shell: bash
+        run: touch .act-fixtures/migration-build-ran
+
+      - name: Publish the already-rendered manifest
+        id: publish
+        uses: ./
+        with:
+          operation: publish
+          source: ${{ steps.render.outputs.rendered-manifest }}
+          rendered: "true"
+          repo: ./.act-fixtures/desired.git
+          branch: main
+          stack: api
+          message: "test: publish rendered manifest"
+          token: fixture-token
+          validate-compose: "false"
+
+      - name: Render unchanged state
+        id: render-unchanged
+        uses: ./
+        with:
+          operation: render
+          source: .act-fixtures/source.yaml
+          output: .act-fixtures/rendered-unchanged.yaml
+          repo: ./.act-fixtures/desired.git
+          branch: main
+          stack: api
+          registry: registry.example
+          tag: app-v2
+          template: "true"
+          token: fixture-token
+          validate-compose: "false"
+
+      - name: Inspect unchanged result
+        id: inspect-unchanged
+        shell: bash
+        env:
+          RESULT: ${{ steps.render-unchanged.outputs.result }}
+        run: |
+          if jq -e '.changes[] | select(.id == "init-job/api/migrate" and (.changed_fields | index("image")))' <<<"$RESULT" >/dev/null; then
+            echo "migration_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "migration_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build migration image for unchanged state
+        if: ${{ steps.inspect-unchanged.outputs.migration_changed == 'true' }}
+        shell: bash
+        run: touch .act-fixtures/migration-build-should-not-run
+
+      - name: Verify conditional behavior
+        shell: bash
+        run: |
+          test -f .act-fixtures/migration-build-ran
+          test ! -e .act-fixtures/migration-build-should-not-run
+          test '${{ steps.publish.outputs.changed }}' = 'true'
+          test '${{ steps.render-unchanged.outputs.changed }}' = 'false'

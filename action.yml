@@ -1,9 +1,13 @@
-name: Publish Compose manifest
-description: Render and publish a Compose manifest to a central Git repository with manifest-repo
+name: Render or publish Compose manifest
+description: Render and optionally publish a Compose manifest to a central Git repository
 
 inputs:
+  operation:
+    description: Operation to run, either render or publish
+    required: false
+    default: publish
   source:
-    description: Path to the source Compose manifest
+    description: Path to the source or already-rendered Compose manifest
     required: false
     default: deploy/prod.yaml
   repo:
@@ -18,14 +22,20 @@ inputs:
     required: true
   registry:
     description: Container registry used for rendered service images
-    required: true
+    required: false
+    default: ""
   tag:
     description: Release tag used for rendered service images
-    required: true
+    required: false
+    default: ""
   source-repository-url:
     description: Source repository URL
     required: false
     default: ${{ github.server_url }}/${{ github.repository }}
+  source-revision:
+    description: Source revision recorded in result provenance
+    required: false
+    default: ${{ github.sha }}
   target:
     description: Target path inside the repository; overrides the stack-derived path
     required: false
@@ -36,7 +46,8 @@ inputs:
     default: merge
   message:
     description: Git commit message
-    required: true
+    required: false
+    default: ""
   token:
     description: Git token with write access to the target repository
     required: true
@@ -52,6 +63,28 @@ inputs:
     description: Validate the target with docker compose config before committing
     required: false
     default: "true"
+  template:
+    description: Execute the whole source file as a strict Go template before YAML parsing
+    required: false
+    default: "false"
+  rendered:
+    description: Treat source as an already-rendered manifest and skip template and release rendering
+    required: false
+    default: "false"
+  output:
+    description: Workspace-relative path for the resulting rendered manifest
+    required: false
+    default: .manifest-repo/rendered.yaml
+
+outputs:
+  result:
+    description: Versioned JSON result, suitable for fromJSON(...)
+  changed:
+    description: Whether the desired state has semantic changes
+  rendered-manifest:
+    description: Path to the resulting manifest
+  revision:
+    description: Current or newly published desired-state revision
 
 runs:
   using: docker
@@ -59,7 +92,7 @@ runs:
   env:
     MANIFEST_REPO_TOKEN: ${{ inputs.token }}
   args:
-    - publish
+    - ${{ inputs.operation }}
     - --source
     - ${{ inputs.source }}
     - --repo
@@ -74,6 +107,8 @@ runs:
     - ${{ inputs.tag }}
     - --source-repository-url
     - ${{ inputs.source-repository-url }}
+    - --source-revision
+    - ${{ inputs.source-revision }}
     - --target
     - ${{ inputs.target }}
     - --mode
@@ -85,6 +120,12 @@ runs:
     - --git-email
     - ${{ inputs.git-email }}
     - --validate-compose=${{ inputs.validate-compose }}
+    - --template=${{ inputs.template }}
+    - --rendered=${{ inputs.rendered }}
+    - --output
+    - ${{ inputs.output }}
+    - --workspace
+    - .
     - --token-env
     - MANIFEST_REPO_TOKEN
 
