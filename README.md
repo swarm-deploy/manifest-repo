@@ -16,18 +16,17 @@ The existing Action flow remains the default:
     repo: example/manifests
     branch: main
     stack: api
-    registry: ghcr.io/example
-    tag: ${{ github.sha }}
     mode: merge
     message: "chore(gitops): sync api from ${{ github.repository }}@${{ github.sha }}"
     token: ${{ secrets.MANIFEST_REPO_TOKEN }}
 ```
 
 With the default `operation: publish`, the Action prepares the source, clones the desired-state repository, simulates the merge or replacement, calculates a semantic diff, validates the result, commits, and pushes it.
+Specify a complete image reference, including registry, image name, and tag, for each service and Init Job in the Compose manifest. The Action preserves these references.
 
 ## Render, inspect, and publish
 
-Use separate operations when image builds depend on the planned desired-state changes. `render` never commits or pushes. Its `rendered-manifest` output can be passed back to `publish` with `rendered: "true"`; this prevents template and release rendering from running twice.
+Use separate operations when image builds depend on the planned desired-state changes. `render` never commits or pushes. Its `rendered-manifest` output can be passed back to `publish` with `rendered: "true"`; this prevents template and repository label rendering from running twice.
 
 ```yaml
 - name: Render desired state
@@ -40,7 +39,6 @@ Use separate operations when image builds depend on the planned desired-state ch
     repo: example/manifests
     branch: main
     stack: api
-    registry: ghcr.io/example
     tag: ${{ github.sha }}
     template: "true"
     token: ${{ secrets.MANIFEST_REPO_TOKEN }}
@@ -77,7 +75,7 @@ The full locally runnable example is [`.github/workflows/manifest-repo-act.yaml`
 
 ## Go template input
 
-Set `template: "true"` to execute the complete source file with Go `text/template` before YAML parsing. Templates use `missingkey=error` and expose one helper:
+Set `template: "true"` to execute the complete source file with Go `text/template` before YAML parsing. Templates use `missingkey=error`. The optional `tag` input is available as `{{ .Tag }}` and `hashFiles` is available as a helper:
 
 ```gotemplate
 {{ hashFiles "go.mod" "go.sum" "internal/**" "!internal/generated/**" }}
@@ -90,13 +88,13 @@ For example, a migration image can use independent source hashes:
 ```yaml
 services:
   api:
-    image: ignored-by-release-rendering
+    image: ghcr.io/acme/api:{{ .Tag }}
     x-init-deploy-jobs:
       - name: migrate
         image: ghcr.io/acme/api:{{ hashFiles "cmd/api/**" "internal/**" }}-migrations-{{ hashFiles "migrations/**" }}
 ```
 
-No other template helper library is included.
+The source repository URL is added as the `org.swarm_deploy.github_repository` service label independently of image templating. No other template helper library is included.
 
 ## Structured result
 

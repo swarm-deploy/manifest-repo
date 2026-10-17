@@ -51,8 +51,7 @@ func runOperation(args []string, publish bool) error {
 	source := fs.String("source", "deploy/prod.yaml", "source Compose manifest")
 	output := fs.String("output", "", "resulting manifest path")
 	stack := fs.String("stack", "", "stack name")
-	registry := fs.String("registry", "", "container registry used to render service images")
-	tag := fs.String("tag", "", "release image tag used to render service images")
+	tag := fs.String("tag", "", "optional Go template variable {{ .Tag }}")
 	repositoryURL := fs.String("source-repository-url", "", "source repository URL added to service labels and provenance")
 	sourceRevision := fs.String("source-revision", "", "source repository revision for provenance")
 	repository := fs.String("repo", "", "target repository as owner/name, URL, or local path")
@@ -85,11 +84,9 @@ func runOperation(args []string, publish bool) error {
 		OutputFile:       *output,
 		SourceIsRendered: *rendered,
 		Template:         *templateInput,
+		Tag:              *tag,
 		WorkspaceRoot:    *workspace,
 		RenderOptions: manifest.RenderOptions{
-			StackName:           *stack,
-			Registry:            *registry,
-			ReleaseTag:          *tag,
 			SourceRepositoryURL: *repositoryURL,
 		},
 		Repository:       *repository,

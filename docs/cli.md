@@ -13,7 +13,7 @@ manifest-repo render \
   --repo example/manifests \
   --branch main \
   --stack core \
-  --registry registry.example \
+  --template \
   --tag 2026-09-29-a1b2c3d \
   --source-repository-url https://github.com/example/core \
   --source-revision a1b2c3d \
@@ -23,18 +23,18 @@ manifest-repo render \
 Preparation order is:
 
 1. optionally execute the whole source as a Go template;
-2. apply release image and repository-label rendering when render options are supplied;
+2. add the source repository label when `--source-repository-url` is supplied;
 3. clone current desired state;
 4. simulate merge or replacement;
 5. calculate semantic changes;
 6. write the resulting manifest and structured result.
 
-Use `--template` to enable strict `text/template` processing. `--workspace` selects the root used by `hashFiles`; it defaults to `GITHUB_WORKSPACE`, then the current directory.
+Specify complete image references, including registry, image name, and tag, in the source Compose manifest. Service and Init Job images are preserved. Use `--template` to enable strict `text/template` processing; optional `--tag` supplies `{{ .Tag }}` and does not alter images by itself. `--workspace` selects the root used by `hashFiles`; it defaults to `GITHUB_WORKSPACE`, then the current directory.
 
 ```yaml
 services:
   api:
-    image: ignored
+    image: registry.example/api:{{ .Tag }}
     x-init-deploy-jobs:
       - name: migrate
         image: registry.example/api:{{ hashFiles "go.mod" "internal/**" }}-migrations-{{ hashFiles "migrations/**" "!migrations/testdata/**" }}
@@ -54,15 +54,13 @@ manifest-repo publish \
   --repo example/manifests \
   --branch main \
   --stack core \
-  --registry registry.example \
-  --tag 2026-09-29-a1b2c3d \
   --source-repository-url https://github.com/example/core \
   --source-revision a1b2c3d \
   --mode merge \
   --message "chore(gitops): sync core"
 ```
 
-To publish output from a prior `render`, pass `--rendered`. Template and release rendering are skipped even when their flags are also present:
+To publish output from a prior `render`, pass `--rendered`. Template and repository label rendering are skipped even when their flags are also present:
 
 ```bash
 manifest-repo publish \

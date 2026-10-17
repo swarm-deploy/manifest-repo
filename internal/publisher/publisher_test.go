@@ -97,7 +97,7 @@ func TestRenderAndPublishReturnTheSameSemanticDiff(t *testing.T) {
 	source := filepath.Join(dir, "source.yaml")
 	writeTestFile(t, source, `services:
   api:
-    image: ignored
+    image: registry.example/applications/api/api:v2
     x-init-deploy-jobs:
       - name: migrate
         image: registry.example/applications/api/migrations:v2
@@ -106,10 +106,8 @@ func TestRenderAndPublishReturnTheSameSemanticDiff(t *testing.T) {
 	cfg := Config{
 		SourceFile: source,
 		OutputFile: filepath.Join(dir, "rendered.yaml"),
+		Tag:        "unused-without-template",
 		RenderOptions: manifest.RenderOptions{
-			StackName:           "api",
-			Registry:            "registry.example",
-			ReleaseTag:          "v2",
 			SourceRepositoryURL: "https://github.com/acme/api",
 		},
 		Repository:       desiredRepo,
@@ -128,6 +126,11 @@ func TestRenderAndPublishReturnTheSameSemanticDiff(t *testing.T) {
 	assert.Equal(t, "render", rendered.Operation)
 	assert.Equal(t, beforeRevision, repositoryRevision(t, desiredRepo), "render must not push")
 	assert.Equal(t, "source-sha", rendered.Source.Revision)
+	renderedManifest, err := os.ReadFile(cfg.OutputFile)
+	require.NoError(t, err)
+	assert.Contains(t, string(renderedManifest), "image: registry.example/applications/api/api:v2")
+	assert.Contains(t, string(renderedManifest), "image: registry.example/applications/api/migrations:v2")
+	assert.Contains(t, string(renderedManifest), "org.swarm_deploy.github_repository: https://github.com/acme/api")
 
 	published, err := Publish(cfg)
 	require.NoError(t, err)
@@ -143,7 +146,7 @@ func TestRenderAndPublishReturnTheSameSemanticDiff(t *testing.T) {
 	assert.Empty(t, unchanged.Changes)
 }
 
-func TestPublishAlreadyRenderedManifestSkipsTemplateAndReleaseRendering(t *testing.T) {
+func TestPublishAlreadyRenderedManifestSkipsTemplateAndLabelRendering(t *testing.T) {
 	desiredRepo := newDesiredRepository(t, `services:
   api:
     image: registry/api:old
@@ -160,7 +163,7 @@ func TestPublishAlreadyRenderedManifestSkipsTemplateAndReleaseRendering(t *testi
 		SourceIsRendered: true,
 		Template:         true,
 		RenderOptions: manifest.RenderOptions{
-			StackName: "would-fail-with-incomplete-options",
+			SourceRepositoryURL: "https://github.com/acme/api",
 		},
 		Repository:    desiredRepo,
 		Branch:        "main",

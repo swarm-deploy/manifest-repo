@@ -20,12 +20,8 @@ inputs:
   stack:
     description: Stack name; the default target is applications/<stack>.yaml
     required: true
-  registry:
-    description: Container registry used for rendered service images
-    required: false
-    default: ""
   tag:
-    description: Release tag used for rendered service images
+    description: Optional Go template variable available as {{ .Tag }} when template is enabled
     required: false
     default: ""
   source-repository-url:
@@ -68,7 +64,7 @@ inputs:
     required: false
     default: "false"
   rendered:
-    description: Treat source as an already-rendered manifest and skip template and release rendering
+    description: Treat source as an already-rendered manifest and skip template and repository label rendering
     required: false
     default: "false"
   output:
@@ -101,8 +97,6 @@ runs:
     - ${{ inputs.branch }}
     - --stack
     - ${{ inputs.stack }}
-    - --registry
-    - ${{ inputs.registry }}
     - --tag
     - ${{ inputs.tag }}
     - --source-repository-url

@@ -23,11 +23,14 @@ func TestPrepareFileTemplatesWholeInputBeforeYAMLParsing(t *testing.T) {
 	output := filepath.Join(dir, "output.yaml")
 	mustWrite(t, source, `services:
   api:
-    image: "registry/api:{{ hashFiles "migrations/**" }}"
+    image: "registry.example/acme/api:{{ .Tag }}-{{ hashFiles "migrations/**" }}"
+    x-init-deploy-jobs:
+      - name: migrate
+        image: "registry.example/acme/migrations:{{ hashFiles "migrations/**" }}"
 `)
 
 	require.NoError(t, PrepareFile(source, output, PrepareOptions{
-		Template: TemplateOptions{Enabled: true, WorkspaceRoot: dir},
+		Template: TemplateOptions{Enabled: true, WorkspaceRoot: dir, Tag: "v2"},
 	}))
 
 	data, err := os.ReadFile(output)
@@ -35,7 +38,9 @@ func TestPrepareFileTemplatesWholeInputBeforeYAMLParsing(t *testing.T) {
 	var document map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &document))
 	image := document["services"].(map[string]any)["api"].(map[string]any)["image"].(string)
-	assert.Regexp(t, `^registry/api:[0-9a-f]{64}$`, image)
+	assert.Regexp(t, `^registry.example/acme/api:v2-[0-9a-f]{64}$`, image)
+	job := document["services"].(map[string]any)["api"].(map[string]any)["x-init-deploy-jobs"].([]any)[0].(map[string]any)
+	assert.Regexp(t, `^registry.example/acme/migrations:[0-9a-f]{64}$`, job["image"])
 	assert.NotContains(t, string(data), "hashFiles")
 }
 
@@ -56,7 +61,7 @@ func TestExecuteTemplateFileErrors(t *testing.T) {
 			dir := t.TempDir()
 			source := filepath.Join(dir, "source.yaml")
 			mustWrite(t, source, test.input)
-			err := ExecuteTemplateFile(source, filepath.Join(dir, "output.yaml"), dir)
+			err := ExecuteTemplateFile(source, filepath.Join(dir, "output.yaml"), dir, "")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), test.message)
 		})

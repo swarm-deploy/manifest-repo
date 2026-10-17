@@ -21,13 +21,15 @@ type Config struct {
 	SourceFile string
 	// OutputFile receives the resulting manifest when set.
 	OutputFile string
-	// SourceIsRendered skips template and release rendering when true.
+	// SourceIsRendered skips template and repository label rendering when true.
 	SourceIsRendered bool
 	// Template enables strict Go template processing before YAML parsing.
 	Template bool
 	// WorkspaceRoot is the source repository root used by hashFiles.
 	WorkspaceRoot string
-	// RenderOptions configure the existing release image and label rendering.
+	// Tag is available to Go templates as {{ .Tag }}.
+	Tag string
+	// RenderOptions configure repository label rendering.
 	RenderOptions manifest.RenderOptions
 	// Repository is the desired-state Git repository.
 	Repository string
@@ -128,11 +130,11 @@ func execute(cfg Config, publish bool) (result.Result, error) {
 	resultValue.DesiredState = &result.Provenance{Repository: provenanceRepository(cfg.Repository), Revision: strings.TrimSpace(beforeRevision)}
 
 	preparedSource := sourcePath
-	prepareSource := cfg.Template || cfg.RenderOptions.Registry != "" || cfg.RenderOptions.ReleaseTag != ""
+	prepareSource := cfg.Template || cfg.RenderOptions.SourceRepositoryURL != ""
 	if !cfg.SourceIsRendered && prepareSource {
 		preparedSource = filepath.Join(workDir, "prepared.yaml")
 		if err := manifest.PrepareFile(sourcePath, preparedSource, manifest.PrepareOptions{
-			Template: manifest.TemplateOptions{Enabled: cfg.Template, WorkspaceRoot: workspaceRoot},
+			Template: manifest.TemplateOptions{Enabled: cfg.Template, WorkspaceRoot: workspaceRoot, Tag: cfg.Tag},
 			Render:   cfg.RenderOptions,
 		}); err != nil {
 			return resultValue, fmt.Errorf("prepare manifest: %w", err)

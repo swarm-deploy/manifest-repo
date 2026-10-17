@@ -21,13 +21,15 @@ type TemplateOptions struct {
 	Enabled bool
 	// WorkspaceRoot is the root used by hashFiles.
 	WorkspaceRoot string
+	// Tag is available to templates as {{ .Tag }}.
+	Tag string
 }
 
-// PrepareOptions controls template processing and legacy release rendering.
+// PrepareOptions controls template processing and repository label rendering.
 type PrepareOptions struct {
 	// Template configures optional template processing.
 	Template TemplateOptions
-	// Render configures release image and label rendering.
+	// Render configures repository label rendering.
 	Render RenderOptions
 }
 
@@ -45,12 +47,12 @@ func PrepareFile(source, output string, opts PrepareOptions) error {
 			return fmt.Errorf("close templated manifest: %w", err)
 		}
 		defer func() { _ = os.Remove(input) }()
-		if err := ExecuteTemplateFile(source, input, opts.Template.WorkspaceRoot); err != nil {
+		if err := ExecuteTemplateFile(source, input, opts.Template.WorkspaceRoot, opts.Template.Tag); err != nil {
 			return err
 		}
 	}
 
-	if renderRequested(opts.Render) {
+	if opts.Render.SourceRepositoryURL != "" {
 		return RenderFile(input, output, opts.Render)
 	}
 
@@ -62,7 +64,7 @@ func PrepareFile(source, output string, opts PrepareOptions) error {
 }
 
 // ExecuteTemplateFile executes a whole input file as a strict Go text/template.
-func ExecuteTemplateFile(source, output, workspaceRoot string) error {
+func ExecuteTemplateFile(source, output, workspaceRoot, tag string) error {
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", source, err)
@@ -91,7 +93,7 @@ func ExecuteTemplateFile(source, output, workspaceRoot string) error {
 	if err != nil {
 		return fmt.Errorf("create %s: %w", output, err)
 	}
-	executeErr := tmpl.Execute(file, map[string]any{})
+	executeErr := tmpl.Execute(file, map[string]any{"Tag": tag})
 	closeErr := file.Close()
 	if executeErr != nil {
 		return fmt.Errorf("execute template %s: %w", source, executeErr)
@@ -179,10 +181,6 @@ func HashFiles(root string, patterns ...string) (string, error) {
 		}
 	}
 	return hex.EncodeToString(combined.Sum(nil)), nil
-}
-
-func renderRequested(opts RenderOptions) bool {
-	return opts.Registry != "" || opts.ReleaseTag != ""
 }
 
 func validateHashPattern(original, pattern string) error {

@@ -30,7 +30,7 @@ jobs:
           cat > .act-fixtures/source.yaml <<'YAML'
           services:
             api:
-              image: ignored
+              image: registry.example/applications/api/api:{{ .Tag }}
               x-init-deploy-jobs:
                 - name: migrate
                   image: registry.example/applications/api/migrations:{{ hashFiles ".act-fixtures/migrations/**" }}
@@ -52,7 +52,6 @@ jobs:
           repo: ./.act-fixtures/desired.git
           branch: main
           stack: api
-          registry: registry.example
           tag: app-v2
           template: "true"
           token: fixture-token
@@ -101,7 +100,6 @@ jobs:
           repo: ./.act-fixtures/desired.git
           branch: main
           stack: api
-          registry: registry.example
           tag: app-v2
           template: "true"
           token: fixture-token
