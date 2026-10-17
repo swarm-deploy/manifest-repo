@@ -10,22 +10,11 @@ import (
 const GitHubRepositoryLabel = "org.swarm_deploy.github_repository"
 
 type RenderOptions struct {
-	StackName           string
-	Registry            string
-	ReleaseTag          string
+	// SourceRepositoryURL is written to the swarm-deploy repository label.
 	SourceRepositoryURL string
 }
 
 func RenderFile(source, output string, opts RenderOptions) error {
-	if strings.TrimSpace(opts.StackName) == "" {
-		return fmt.Errorf("stack name is required")
-	}
-	if strings.TrimSpace(opts.Registry) == "" {
-		return fmt.Errorf("registry is required")
-	}
-	if strings.TrimSpace(opts.ReleaseTag) == "" {
-		return fmt.Errorf("release tag is required")
-	}
 	if strings.TrimSpace(opts.SourceRepositoryURL) == "" {
 		return fmt.Errorf("source repository URL is required")
 	}
@@ -43,16 +32,12 @@ func RenderFile(source, output string, opts RenderOptions) error {
 		return fmt.Errorf("source compose has no services to render")
 	}
 
-	registry := strings.TrimSuffix(opts.Registry, "/")
 	for i := 0; i+1 < len(services.Content); i += 2 {
 		serviceKey := services.Content[i].Value
 		serviceCfg := services.Content[i+1]
 		if serviceCfg.Kind != yaml.MappingNode {
 			return fmt.Errorf("service %q must be a mapping", serviceKey)
 		}
-
-		image := fmt.Sprintf("%s/applications/%s/%s:%s", registry, opts.StackName, serviceKey, opts.ReleaseTag)
-		mappingSet(serviceCfg, "image", scalarNode(image))
 
 		deploy, _, ok := mappingLookup(serviceCfg, "deploy")
 		if !ok || isNullNode(deploy) {

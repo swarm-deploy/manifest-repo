@@ -17,13 +17,16 @@ func TestRenderFile(t *testing.T) {
 	output := filepath.Join(dir, "rendered.yaml")
 	input := `services:
   core-grpc:
-    image: example/ignored:latest
+    image: registry.example/acme/core-grpc:v1.2.3
+    x-init-deploy-jobs:
+      - name: migrate
+        image: registry.example/acme/migrations:v4
     deploy:
       labels:
         - keep=value
         - org.swarm_deploy.github_repository=https://old.example/repo
   worker:
-    image: example/ignored:latest
+    image: registry.example/acme/worker:v5
     deploy:
       labels:
         custom: label
@@ -36,9 +39,6 @@ networks:
 	}
 
 	err := RenderFile(source, output, RenderOptions{
-		StackName:           "core",
-		Registry:            "registry.example/",
-		ReleaseTag:          "v1.2.3",
 		SourceRepositoryURL: "https://github.com/acme/core",
 	})
 	if err != nil {
@@ -56,8 +56,12 @@ networks:
 	}
 	services := got["services"].(map[string]any)
 	grpc := services["core-grpc"].(map[string]any)
-	if grpc["image"] != "registry.example/applications/core/core-grpc:v1.2.3" {
+	if grpc["image"] != "registry.example/acme/core-grpc:v1.2.3" {
 		t.Fatalf("unexpected image: %v", grpc["image"])
+	}
+	jobs := grpc["x-init-deploy-jobs"].([]any)
+	if jobs[0].(map[string]any)["image"] != "registry.example/acme/migrations:v4" {
+		t.Fatalf("init job image changed: %#v", jobs)
 	}
 	labels := grpc["deploy"].(map[string]any)["labels"].([]any)
 	if len(labels) != 2 || labels[0] != "keep=value" || labels[1] != GitHubRepositoryLabel+"=https://github.com/acme/core" {
@@ -65,6 +69,9 @@ networks:
 	}
 
 	worker := services["worker"].(map[string]any)
+	if worker["image"] != "registry.example/acme/worker:v5" {
+		t.Fatalf("worker image changed: %v", worker["image"])
+	}
 	workerLabels := worker["deploy"].(map[string]any)["labels"].(map[string]any)
 	if workerLabels[GitHubRepositoryLabel] != "https://github.com/acme/core" {
 		t.Fatalf("repository label not set: %#v", workerLabels)
@@ -87,9 +94,6 @@ func TestRenderFileRejectsNonStringListLabel(t *testing.T) {
 	}
 
 	err := RenderFile(source, filepath.Join(dir, "out.yaml"), RenderOptions{
-		StackName:           "api",
-		Registry:            "registry.example",
-		ReleaseTag:          "v1",
 		SourceRepositoryURL: "https://github.com/acme/api",
 	})
 	if err == nil || !strings.Contains(err.Error(), "labels list must contain strings") {
@@ -112,9 +116,6 @@ func TestRenderFileTreatsNullDeployAndLabelsAsAbsent(t *testing.T) {
 `)
 
 	err := RenderFile(source, output, RenderOptions{
-		StackName:           "core",
-		Registry:            "registry.example",
-		ReleaseTag:          "v1",
 		SourceRepositoryURL: "https://github.com/acme/core",
 	})
 	if err != nil {
