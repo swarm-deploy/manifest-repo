@@ -123,6 +123,18 @@ func logicalObjects(doc *yaml.Node) (map[string]logicalObject, error) {
 		return nil, fmt.Errorf("invalid YAML document")
 	}
 	root := doc.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		name := root.Content[i].Value
+		if _, isSection := sectionKinds[name]; isSection {
+			continue
+		}
+		var value any
+		if err := root.Content[i+1].Decode(&value); err != nil {
+			return nil, fmt.Errorf("top-level field %q: %w", name, err)
+		}
+		id := "top-level/" + name
+		objects[id] = logicalObject{id: id, kind: "top_level", name: name, fields: map[string]any{"value": value}}
+	}
 	for section, kind := range sectionKinds {
 		sectionNode, _, ok := mappingLookup(root, section)
 		if !ok || isNullNode(sectionNode) {

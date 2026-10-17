@@ -141,6 +141,56 @@ volumes:
 	assert.Equal(t, "updated", byID["volume/data"].Change)
 }
 
+func TestDiffFilesReportsTopLevelFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		before string
+		after  string
+		id     string
+		change string
+	}{
+		{"name updated", "name: old\n", "name: new\n", "top-level/name", "updated"},
+		{"extension added", "", "x-policy: {token: secret}\n", "top-level/x-policy", "added"},
+		{"extension removed", "x-policy: {token: secret}\n", "", "top-level/x-policy", "removed"},
+		{"extension updated", "x-policy: {items: [a]}\n", "x-policy: {items: [b]}\n", "top-level/x-policy", "updated"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			before := filepath.Join(dir, "before.yaml")
+			after := filepath.Join(dir, "after.yaml")
+			mustWrite(t, before, test.before)
+			mustWrite(t, after, test.after)
+			changes, err := DiffFiles(before, after)
+			require.NoError(t, err)
+			require.Len(t, changes, 1)
+			assert.Equal(t, test.id, changes[0].ID)
+			assert.Equal(t, "top_level", changes[0].Kind)
+			assert.Equal(t, test.change, changes[0].Change)
+			assert.Equal(t, []string{"value"}, changes[0].ChangedFields)
+			assert.Empty(t, changes[0].Details)
+			encoded, err := json.Marshal(changes)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), "secret")
+		})
+	}
+}
+
+func TestDiffFilesTopLevelSemanticEquality(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	before := filepath.Join(dir, "before.yaml")
+	after := filepath.Join(dir, "after.yaml")
+	mustWrite(t, before, "name: api\nx-policy: {a: 1, b: [x, y]}\n")
+	mustWrite(t, after, "# a comment\nx-policy:\n  b: [x, y]\n  a: 1\nname: api\n")
+	changes, err := DiffFiles(before, after)
+	require.NoError(t, err)
+	assert.Empty(t, changes)
+}
+
 func changesByID(changes []result.Change) map[string]result.Change {
 	indexed := make(map[string]result.Change, len(changes))
 	for _, change := range changes {

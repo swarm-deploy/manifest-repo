@@ -97,7 +97,10 @@ config/<name>
 secret/<name>
 network/<name>
 volume/<name>
+top-level/<name>
 ```
+
+Top-level fields such as `name` and `x-*` have kind `top_level` and report a changed `value` field without exposing its contents in `details`.
 
 `changed_fields` lists field names without values. `details.before` and `details.after` are emitted only for `image`, `replicas`, `ports`, and `constraints`. Sensitive values such as environment variables, secrets, and config contents are not emitted.
 

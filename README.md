@@ -72,6 +72,7 @@ Use separate operations when image builds depend on the planned desired-state ch
 ```
 
 The full locally runnable example is [`.github/workflows/manifest-repo-act.yaml`](./.github/workflows/manifest-repo-act.yaml). It verifies both branches: a migration build runs when the init-job image changes and is skipped after the rendered manifest has been published.
+The CI integration test in [`integration/cli_test.go`](./integration/cli_test.go) builds the CLI from the current source and exercises this same flow.
 
 ## Go template input
 
@@ -134,7 +135,7 @@ Both operations print versioned JSON and expose it as the Action `result` output
 }
 ```
 
-Logical object kinds are `service`, `init_job`, `config`, `secret`, `network`, and `volume`. Init jobs under `x-init-deploy-jobs` are compared independently from their service. Changes are `added`, `updated`, or `removed`.
+Logical object kinds are `service`, `init_job`, `config`, `secret`, `network`, `volume`, and `top_level`. Top-level fields such as `name` and `x-*` are reported separately. Init jobs under `x-init-deploy-jobs` are compared independently from their service. Changes are `added`, `updated`, or `removed`.
 
 Values are included only for safe fields: `image`, `replicas`, `ports`, and `constraints`. Environment values, secret values, config contents, and other potentially sensitive values never appear in `details`.
 

@@ -6,7 +6,7 @@ type Result struct {
 	SchemaVersion string `json:"schema_version"`
 	// Operation is render or publish.
 	Operation string `json:"operation"`
-	// Changed reports whether logical desired-state objects changed.
+	// Changed reports whether the desired state changed semantically.
 	Changed bool `json:"changed"`
 	// Stack is the application stack name.
 	Stack string `json:"stack"`
