@@ -17,6 +17,7 @@ manifest-repo render \
   --tag 2026-09-29-a1b2c3d \
   --source-repository-url https://github.com/example/core \
   --source-revision a1b2c3d \
+  --global-env-files $'env/common.env\nenv/production.env' \
   --mode merge
 ```
 
@@ -24,10 +25,13 @@ Preparation order is:
 
 1. optionally execute the whole source as a Go template;
 2. add the source repository label when `--source-repository-url` is supplied;
-3. clone current desired state;
-4. simulate merge or replacement;
-5. calculate semantic changes;
-6. write the resulting manifest and structured result.
+3. prepend target-repository-relative `--global-env-files` to every source service;
+4. clone current desired state;
+5. simulate merge or replacement;
+6. calculate semantic changes;
+7. write the resulting manifest and structured result.
+
+`--global-env-files` accepts newline-delimited paths and may be repeated. Each path is resolved from the root of the target GitOps repository and written relative to the target Compose file. Global entries are added before existing service `env_file` entries, duplicates are skipped, and existing order is preserved. The files are not read, parsed, or expanded. Existing `environment` values and Init Jobs are unchanged.
 
 Specify complete image references, including registry, image name, and tag, in the source Compose manifest. Service and Init Job images are preserved. Use `--template` to enable strict `text/template` processing; optional `--tag` supplies `{{ .Tag }}` and does not alter images by itself. `--workspace` selects the root used by `hashFiles`; it defaults to `GITHUB_WORKSPACE`, then the current directory.
 
@@ -60,7 +64,7 @@ manifest-repo publish \
   --message "chore(gitops): sync core"
 ```
 
-To publish output from a prior `render`, pass `--rendered`. Template and repository label rendering are skipped even when their flags are also present:
+To publish output from a prior `render`, pass `--rendered`. Template, repository label, and global environment file rendering are skipped even when their flags are also present:
 
 ```bash
 manifest-repo publish \

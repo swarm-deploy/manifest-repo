@@ -156,6 +156,8 @@ func TestPublishAlreadyRenderedManifestSkipsTemplateAndLabelRendering(t *testing
 	writeTestFile(t, renderedSource, `services:
   api:
     image: "{{ .missing }}"
+    env_file:
+      - ../env/common.env
 `)
 
 	resultValue, err := Publish(Config{
@@ -164,6 +166,7 @@ func TestPublishAlreadyRenderedManifestSkipsTemplateAndLabelRendering(t *testing
 		Template:         true,
 		RenderOptions: manifest.RenderOptions{
 			SourceRepositoryURL: "https://github.com/acme/api",
+			GlobalEnvFiles:      []string{"env/common.env"},
 		},
 		Repository:    desiredRepo,
 		Branch:        "main",
@@ -178,6 +181,46 @@ func TestPublishAlreadyRenderedManifestSkipsTemplateAndLabelRendering(t *testing
 	published, err := outputCommand("", nil, "git", "--git-dir", desiredRepo, "show", "main:applications/api.yaml")
 	require.NoError(t, err)
 	assert.Contains(t, published, `image: "{{ .missing }}"`)
+	assert.Equal(t, 1, strings.Count(published, "../env/common.env"), "rendered input must not receive global env files twice")
+}
+
+func TestRenderGlobalEnvFilesKeepsUnownedServicesIsolatedInMergeMode(t *testing.T) {
+	desiredRepo := newDesiredRepository(t, `services:
+  api:
+    image: registry.example/api:old
+  shared:
+    image: registry.example/shared:v1
+    env_file:
+      - ../env/shared.env
+`)
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.yaml")
+	output := filepath.Join(dir, "rendered.yaml")
+	writeTestFile(t, source, `services:
+  api:
+    image: registry.example/api:new
+`)
+
+	_, err := Render(Config{
+		SourceFile: source,
+		OutputFile: output,
+		RenderOptions: manifest.RenderOptions{
+			GlobalEnvFiles: []string{"env/common.env"},
+		},
+		Repository: desiredRepo,
+		Branch:     "main",
+		TargetFile: "applications/api.yaml",
+		Stack:      "api",
+		Mode:       manifest.MergeModeMerge,
+	})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(output)
+	require.NoError(t, err)
+	content := string(data)
+	assert.Equal(t, 1, strings.Count(content, "../env/common.env"))
+	assert.Equal(t, 1, strings.Count(content, "../env/shared.env"))
+	assert.Contains(t, content, "image: registry.example/shared:v1")
 }
 
 func newDesiredRepository(t *testing.T, manifestContent string) string {
