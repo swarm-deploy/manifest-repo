@@ -66,6 +66,15 @@ func runOperation(args []string, publish bool) error {
 	templateInput := fs.Bool("template", false, "execute the whole input as a strict Go template")
 	workspace := fs.String("workspace", defaultWorkspace(), "workspace root used by hashFiles")
 	rendered := fs.Bool("rendered", false, "source is a previously rendered manifest")
+	var globalEnvFiles []string
+	fs.Func("global-env-files", "newline-delimited target-repository-relative env_file paths (repeatable)", func(value string) error {
+		for _, line := range strings.Split(value, "\n") {
+			if path := strings.TrimSpace(line); path != "" {
+				globalEnvFiles = append(globalEnvFiles, path)
+			}
+		}
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -88,6 +97,7 @@ func runOperation(args []string, publish bool) error {
 		WorkspaceRoot:    *workspace,
 		RenderOptions: manifest.RenderOptions{
 			SourceRepositoryURL: *repositoryURL,
+			GlobalEnvFiles:      globalEnvFiles,
 		},
 		Repository:       *repository,
 		Branch:           *branch,

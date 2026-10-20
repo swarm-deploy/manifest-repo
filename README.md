@@ -24,9 +24,23 @@ The existing Action flow remains the default:
 With the default `operation: publish`, the Action prepares the source, clones the desired-state repository, simulates the merge or replacement, calculates a semantic diff, validates the result, commits, and pushes it.
 Specify a complete image reference, including registry, image name, and tag, for each service and Init Job in the Compose manifest. The Action preserves these references.
 
+Shared environment files can be added to every source-owned service without reading or expanding their contents:
+
+```yaml
+- name: Publish deployment manifest
+  uses: swarm-deploy/manifest-repo@v0
+  with:
+    # ...
+    global-env-files: |
+      env/common.env
+      env/production.env
+```
+
+Paths are relative to the root of the target GitOps repository and are written relative to the target Compose file. Global entries are prepended to each service's existing `env_file` list so service-specific files retain precedence. Existing entries keep their order, duplicate paths are not added, and `environment` and Init Jobs are not changed. The referenced files are never read or parsed by `manifest-repo`; `swarm-deploy` remains responsible for resolving `env_file` values.
+
 ## Render, inspect, and publish
 
-Use separate operations when image builds depend on the planned desired-state changes. `render` never commits or pushes. Its `rendered-manifest` output can be passed back to `publish` with `rendered: "true"`; this prevents template and repository label rendering from running twice.
+Use separate operations when image builds depend on the planned desired-state changes. `render` never commits or pushes. Its `rendered-manifest` output can be passed back to `publish` with `rendered: "true"`; this prevents template, repository label, and global environment file rendering from running twice.
 
 ```yaml
 - name: Render desired state

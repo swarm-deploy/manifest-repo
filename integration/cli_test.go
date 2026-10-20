@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,6 +49,7 @@ services:
 			"--source", source, "--output", output, "--repo", repository,
 			"--branch", "main", "--stack", "api", "--template", "--tag", "v2",
 			"--workspace", dir, "--source-repository-url", "https://github.com/acme/api",
+			"--global-env-files", "env/common.env\nenv/production.env",
 		)
 	}
 	publish := func(input string) result.Result {
@@ -55,6 +57,7 @@ services:
 		return runCLI(t, root, binary, "publish",
 			"--source", input, "--rendered", "--repo", repository,
 			"--branch", "main", "--stack", "api", "--message", "publish api",
+			"--global-env-files", "env/common.env\nenv/production.env",
 			"--validate-compose=false",
 		)
 	}
@@ -77,11 +80,16 @@ services:
 	assert.Contains(t, string(rendered), "image: registry.example/acme/api:v2")
 	assert.Contains(t, string(rendered), "image: registry.example/acme/migrations:")
 	assert.Contains(t, string(rendered), "org.swarm_deploy.github_repository: https://github.com/acme/api")
+	assert.Equal(t, 1, strings.Count(string(rendered), "../env/common.env"))
+	assert.Equal(t, 1, strings.Count(string(rendered), "../env/production.env"))
 
 	second := publish(renderedPath)
 	assert.True(t, second.Changed)
 	assert.Equal(t, first.Changes, second.Changes)
 	assert.NotEqual(t, first.DesiredState.Revision, second.DesiredState.Revision)
+	published := runCommand(t, root, "git", "--git-dir", repository, "show", "main:applications/api.yaml")
+	assert.Equal(t, 1, strings.Count(string(published), "../env/common.env"))
+	assert.Equal(t, 1, strings.Count(string(published), "../env/production.env"))
 
 	third := render(filepath.Join(dir, "unchanged.yaml"))
 	assert.False(t, third.Changed)

@@ -25,7 +25,7 @@ type TemplateOptions struct {
 	Tag string
 }
 
-// PrepareOptions controls template processing and repository label rendering.
+// PrepareOptions controls template processing and manifest rendering.
 type PrepareOptions struct {
 	// Template configures optional template processing.
 	Template TemplateOptions
@@ -52,7 +52,7 @@ func PrepareFile(source, output string, opts PrepareOptions) error {
 		}
 	}
 
-	if opts.Render.SourceRepositoryURL != "" {
+	if opts.Render.SourceRepositoryURL != "" || len(opts.Render.GlobalEnvFiles) > 0 {
 		return RenderFile(input, output, opts.Render)
 	}
 

@@ -64,9 +64,13 @@ inputs:
     required: false
     default: "false"
   rendered:
-    description: Treat source as an already-rendered manifest and skip template and repository label rendering
+    description: Treat source as an already-rendered manifest and skip template, repository label, and global env file rendering
     required: false
     default: "false"
+  global-env-files:
+    description: Newline-delimited env_file paths relative to the target repository root
+    required: false
+    default: ""
   output:
     description: Workspace-relative path for the resulting rendered manifest
     required: false
@@ -116,8 +120,14 @@ runs:
         INPUT_VALIDATE_COMPOSE: ${{ inputs.validate-compose }}
         INPUT_TEMPLATE: ${{ inputs.template }}
         INPUT_RENDERED: ${{ inputs.rendered }}
+        INPUT_GLOBAL_ENV_FILES: ${{ inputs.global-env-files }}
         INPUT_OUTPUT: ${{ inputs.output }}
       run: |
+        global_env_file_args=()
+        if [[ -n "$INPUT_GLOBAL_ENV_FILES" ]]; then
+          global_env_file_args=(--global-env-files "$INPUT_GLOBAL_ENV_FILES")
+        fi
+
         docker run --rm \
           --user "$(id -u):$(id -g)" \
           --volume "$GITHUB_WORKSPACE:/github/workspace" \
@@ -143,6 +153,7 @@ runs:
           "--validate-compose=$INPUT_VALIDATE_COMPOSE" \
           "--template=$INPUT_TEMPLATE" \
           "--rendered=$INPUT_RENDERED" \
+          "${global_env_file_args[@]}" \
           --output "$INPUT_OUTPUT" \
           --workspace . \
           --token-env MANIFEST_REPO_TOKEN

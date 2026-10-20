@@ -29,7 +29,7 @@ type Config struct {
 	WorkspaceRoot string
 	// Tag is available to Go templates as {{ .Tag }}.
 	Tag string
-	// RenderOptions configure repository label rendering.
+	// RenderOptions configure source manifest rendering.
 	RenderOptions manifest.RenderOptions
 	// Repository is the desired-state Git repository.
 	Repository string
@@ -130,12 +130,14 @@ func execute(cfg Config, publish bool) (result.Result, error) {
 	resultValue.DesiredState = &result.Provenance{Repository: provenanceRepository(cfg.Repository), Revision: strings.TrimSpace(beforeRevision)}
 
 	preparedSource := sourcePath
-	prepareSource := cfg.Template || cfg.RenderOptions.SourceRepositoryURL != ""
+	prepareSource := cfg.Template || cfg.RenderOptions.SourceRepositoryURL != "" || len(cfg.RenderOptions.GlobalEnvFiles) > 0
 	if !cfg.SourceIsRendered && prepareSource {
+		renderOptions := cfg.RenderOptions
+		renderOptions.TargetFile = cfg.TargetFile
 		preparedSource = filepath.Join(workDir, "prepared.yaml")
 		if err := manifest.PrepareFile(sourcePath, preparedSource, manifest.PrepareOptions{
 			Template: manifest.TemplateOptions{Enabled: cfg.Template, WorkspaceRoot: workspaceRoot, Tag: cfg.Tag},
-			Render:   cfg.RenderOptions,
+			Render:   renderOptions,
 		}); err != nil {
 			return resultValue, fmt.Errorf("prepare manifest: %w", err)
 		}
