@@ -1,6 +1,7 @@
 name: Manifest render inspect publish example
 
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -48,7 +49,7 @@ jobs:
         with:
           operation: render
           source: .act-fixtures/source.yaml
-          output: .act-fixtures/rendered.yaml
+          output: .manifest-repo/rendered.yaml
           repo: ./.act-fixtures/desired.git
           branch: main
           stack: api
@@ -96,7 +97,7 @@ jobs:
         with:
           operation: render
           source: .act-fixtures/source.yaml
-          output: .act-fixtures/rendered-unchanged.yaml
+          output: .act-fixtures/custom/nested/rendered-unchanged.yaml
           repo: ./.act-fixtures/desired.git
           branch: main
           stack: api
@@ -129,3 +130,15 @@ jobs:
           test ! -e .act-fixtures/migration-build-should-not-run
           test '${{ steps.publish.outputs.changed }}' = 'true'
           test '${{ steps.render-unchanged.outputs.changed }}' = 'false'
+
+      - name: Verify output directory ownership and cleanup
+        shell: bash
+        run: |
+          owner="$(stat -c '%u:%g' "$GITHUB_WORKSPACE")"
+          for path in .manifest-repo .act-fixtures/custom .act-fixtures/custom/nested; do
+            test "$(stat -c '%u:%g' "$path")" = "$owner"
+          done
+          rm -rf .manifest-repo .act-fixtures/custom
+
+      - name: Repeated checkout
+        uses: actions/checkout@v6
