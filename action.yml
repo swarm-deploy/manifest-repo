@@ -110,7 +110,7 @@ runs:
         INPUT_TARGET: ${{ inputs.target }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_MESSAGE: ${{ inputs.message }}
-        INPUT_TOKEN: ${{ inputs.token }}
+        MANIFEST_REPO_TOKEN: ${{ inputs.token }}
         INPUT_GIT_USER: ${{ inputs.git-user }}
         INPUT_GIT_EMAIL: ${{ inputs.git-email }}
         INPUT_VALIDATE_COMPOSE: ${{ inputs.validate-compose }}
@@ -119,11 +119,13 @@ runs:
         INPUT_OUTPUT: ${{ inputs.output }}
       run: |
         docker run --rm \
+          --user "$(id -u):$(id -g)" \
           --volume "$GITHUB_WORKSPACE:/github/workspace" \
           --volume "$(dirname "$GITHUB_OUTPUT"):$(dirname "$GITHUB_OUTPUT")" \
           --workdir /github/workspace \
+          --env HOME=/tmp \
           --env "GITHUB_OUTPUT=$GITHUB_OUTPUT" \
-          --env "MANIFEST_REPO_TOKEN=$INPUT_TOKEN" \
+          --env MANIFEST_REPO_TOKEN \
           ghcr.io/swarm-deploy/manifest-repo:v0 \
           "$INPUT_OPERATION" \
           --source "$INPUT_SOURCE" \
