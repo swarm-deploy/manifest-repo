@@ -123,6 +123,11 @@ runs:
         INPUT_GLOBAL_ENV_FILES: ${{ inputs.global-env-files }}
         INPUT_OUTPUT: ${{ inputs.output }}
       run: |
+        global_env_file_args=()
+        if [[ -n "$INPUT_GLOBAL_ENV_FILES" ]]; then
+          global_env_file_args=(--global-env-files "$INPUT_GLOBAL_ENV_FILES")
+        fi
+
         docker run --rm \
           --user "$(id -u):$(id -g)" \
           --volume "$GITHUB_WORKSPACE:/github/workspace" \
@@ -148,7 +153,7 @@ runs:
           "--validate-compose=$INPUT_VALIDATE_COMPOSE" \
           "--template=$INPUT_TEMPLATE" \
           "--rendered=$INPUT_RENDERED" \
-          --global-env-files "$INPUT_GLOBAL_ENV_FILES" \
+          "${global_env_file_args[@]}" \
           --output "$INPUT_OUTPUT" \
           --workspace . \
           --token-env MANIFEST_REPO_TOKEN
