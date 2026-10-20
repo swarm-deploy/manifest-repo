@@ -79,55 +79,79 @@ inputs:
 outputs:
   result:
     description: Versioned JSON result, suitable for fromJSON(...)
+    value: ${{ steps.manifest.outputs.result }}
   changed:
     description: Whether the desired state has semantic changes
+    value: ${{ steps.manifest.outputs.changed }}
   rendered-manifest:
     description: Path to the resulting manifest
+    value: ${{ steps.manifest.outputs.rendered-manifest }}
   revision:
     description: Current or newly published desired-state revision
+    value: ${{ steps.manifest.outputs.revision }}
 
 runs:
-  using: docker
-  image: docker://ghcr.io/swarm-deploy/manifest-repo:v0
-  env:
-    MANIFEST_REPO_TOKEN: ${{ inputs.token }}
-  args:
-    - ${{ inputs.operation }}
-    - --source
-    - ${{ inputs.source }}
-    - --repo
-    - ${{ inputs.repo }}
-    - --branch
-    - ${{ inputs.branch }}
-    - --stack
-    - ${{ inputs.stack }}
-    - --tag
-    - ${{ inputs.tag }}
-    - --source-repository-url
-    - ${{ inputs.source-repository-url }}
-    - --source-revision
-    - ${{ inputs.source-revision }}
-    - --target
-    - ${{ inputs.target }}
-    - --mode
-    - ${{ inputs.mode }}
-    - --message
-    - ${{ inputs.message }}
-    - --git-user
-    - ${{ inputs.git-user }}
-    - --git-email
-    - ${{ inputs.git-email }}
-    - --validate-compose=${{ inputs.validate-compose }}
-    - --template=${{ inputs.template }}
-    - --rendered=${{ inputs.rendered }}
-    - --global-env-files
-    - ${{ inputs.global-env-files }}
-    - --output
-    - ${{ inputs.output }}
-    - --workspace
-    - .
-    - --token-env
-    - MANIFEST_REPO_TOKEN
+  using: composite
+  steps:
+    - name: Prepare output directory
+      shell: bash
+      env:
+        MANIFEST_REPO_OUTPUT: ${{ inputs.output }}
+      run: mkdir -p -- "$(dirname -- "$MANIFEST_REPO_OUTPUT")"
+
+    - name: Run manifest-repo
+      id: manifest
+      shell: bash
+      env:
+        INPUT_OPERATION: ${{ inputs.operation }}
+        INPUT_SOURCE: ${{ inputs.source }}
+        INPUT_REPO: ${{ inputs.repo }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_STACK: ${{ inputs.stack }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_SOURCE_REPOSITORY_URL: ${{ inputs.source-repository-url }}
+        INPUT_SOURCE_REVISION: ${{ inputs.source-revision }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_MESSAGE: ${{ inputs.message }}
+        MANIFEST_REPO_TOKEN: ${{ inputs.token }}
+        INPUT_GIT_USER: ${{ inputs.git-user }}
+        INPUT_GIT_EMAIL: ${{ inputs.git-email }}
+        INPUT_VALIDATE_COMPOSE: ${{ inputs.validate-compose }}
+        INPUT_TEMPLATE: ${{ inputs.template }}
+        INPUT_RENDERED: ${{ inputs.rendered }}
+        INPUT_GLOBAL_ENV_FILES: ${{ inputs.global-env-files }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+      run: |
+        docker run --rm \
+          --user "$(id -u):$(id -g)" \
+          --volume "$GITHUB_WORKSPACE:/github/workspace" \
+          --volume "$(dirname "$GITHUB_OUTPUT"):$(dirname "$GITHUB_OUTPUT")" \
+          --workdir /github/workspace \
+          --env HOME=/tmp \
+          --env "GITHUB_OUTPUT=$GITHUB_OUTPUT" \
+          --env MANIFEST_REPO_TOKEN \
+          ghcr.io/swarm-deploy/manifest-repo:v0 \
+          "$INPUT_OPERATION" \
+          --source "$INPUT_SOURCE" \
+          --repo "$INPUT_REPO" \
+          --branch "$INPUT_BRANCH" \
+          --stack "$INPUT_STACK" \
+          --tag "$INPUT_TAG" \
+          --source-repository-url "$INPUT_SOURCE_REPOSITORY_URL" \
+          --source-revision "$INPUT_SOURCE_REVISION" \
+          --target "$INPUT_TARGET" \
+          --mode "$INPUT_MODE" \
+          --message "$INPUT_MESSAGE" \
+          --git-user "$INPUT_GIT_USER" \
+          --git-email "$INPUT_GIT_EMAIL" \
+          "--validate-compose=$INPUT_VALIDATE_COMPOSE" \
+          "--template=$INPUT_TEMPLATE" \
+          "--rendered=$INPUT_RENDERED" \
+          --global-env-files "$INPUT_GLOBAL_ENV_FILES" \
+          --output "$INPUT_OUTPUT" \
+          --workspace . \
+          --token-env MANIFEST_REPO_TOKEN
 
 branding:
   icon: upload-cloud
