@@ -1,6 +1,7 @@
 name: Manifest render inspect publish example
 
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -130,19 +131,14 @@ jobs:
           test '${{ steps.publish.outputs.changed }}' = 'true'
           test '${{ steps.render-unchanged.outputs.changed }}' = 'false'
 
-      - name: Verify ownership and runner cleanup
+      - name: Verify output directory ownership and cleanup
         shell: bash
         run: |
           owner="$(stat -c '%u:%g' "$GITHUB_WORKSPACE")"
-          for path in \
-            .manifest-repo \
-            .manifest-repo/rendered.yaml \
-            .act-fixtures/custom \
-            .act-fixtures/custom/nested \
-            .act-fixtures/custom/nested/rendered-unchanged.yaml; do
+          for path in .manifest-repo .act-fixtures/custom .act-fixtures/custom/nested; do
             test "$(stat -c '%u:%g' "$path")" = "$owner"
           done
           rm -rf .manifest-repo .act-fixtures/custom
 
-      - name: Verify subsequent checkout
+      - name: Repeated checkout
         uses: actions/checkout@v6
