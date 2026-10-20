@@ -48,7 +48,7 @@ jobs:
         with:
           operation: render
           source: .act-fixtures/source.yaml
-          output: .act-fixtures/rendered.yaml
+          output: .manifest-repo/rendered.yaml
           repo: ./.act-fixtures/desired.git
           branch: main
           stack: api
@@ -96,7 +96,7 @@ jobs:
         with:
           operation: render
           source: .act-fixtures/source.yaml
-          output: .act-fixtures/rendered-unchanged.yaml
+          output: .act-fixtures/custom/nested/rendered-unchanged.yaml
           repo: ./.act-fixtures/desired.git
           branch: main
           stack: api
@@ -129,3 +129,20 @@ jobs:
           test ! -e .act-fixtures/migration-build-should-not-run
           test '${{ steps.publish.outputs.changed }}' = 'true'
           test '${{ steps.render-unchanged.outputs.changed }}' = 'false'
+
+      - name: Verify ownership and runner cleanup
+        shell: bash
+        run: |
+          owner="$(stat -c '%u:%g' "$GITHUB_WORKSPACE")"
+          for path in \
+            .manifest-repo \
+            .manifest-repo/rendered.yaml \
+            .act-fixtures/custom \
+            .act-fixtures/custom/nested \
+            .act-fixtures/custom/nested/rendered-unchanged.yaml; do
+            test "$(stat -c '%u:%g' "$path")" = "$owner"
+          done
+          rm -rf .manifest-repo .act-fixtures/custom
+
+      - name: Verify subsequent checkout
+        uses: actions/checkout@v6

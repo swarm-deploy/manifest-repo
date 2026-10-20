@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -103,12 +104,20 @@ func runOperation(args []string, publish bool) error {
 		SourceRevision:   *sourceRevision,
 	}
 
+	// Docker Actions run as root, but the runner must be able to remove outputs
+	// on the next checkout. Only fix ownership at the Actions boundary.
+	ownership, err := prepareActionOutputOwnership(*output)
+	if err != nil {
+		return err
+	}
 	var resultValue result.Result
-	var err error
 	if publish {
 		resultValue, err = publisher.Publish(cfg)
 	} else {
 		resultValue, err = publisher.Render(cfg)
+	}
+	if ownershipErr := ownership.restore(); ownershipErr != nil {
+		return errors.Join(err, ownershipErr)
 	}
 	if err != nil {
 		return err
